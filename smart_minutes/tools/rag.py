@@ -1,10 +1,11 @@
-"""RAG tools: call retrieval interface with proper filters."""
+"""RAG 工具：按条件调用检索接口。"""
 from typing import Any, List
 
 from smart_minutes.contracts import IRetrieval
 
 
 def _to_ref(hit: dict) -> dict:
+    """单条 hit 转为统一 ref 字典。"""
     return {
         "pk": hit.get("pk"),
         "score": hit.get("score", 0.0),
@@ -25,7 +26,7 @@ def retrieve_latest_minutes_by_series(
     meeting_name: str,
     top_k: int,
 ) -> List[dict]:
-    """Same series latest minutes. Filter source=minutes, level1=meeting_type/name; sort by time desc."""
+    """同系列最新纪要：source=minutes、level1=会议类型/名，按 time 降序取 top_k。"""
     level1 = meeting_type or meeting_name or ""
     if not level1:
         return []
@@ -35,7 +36,7 @@ def retrieve_latest_minutes_by_series(
         level1_filter=level1,
         top_k=top_k * 2,
     )
-    # Sort by time desc and take top_k
+    # 按 time 降序取 top_k
     with_time = [(h, h.get("time", "")) for h in hits]
     with_time.sort(key=lambda x: x[1], reverse=True)
     return [_to_ref(h) for h, _ in with_time[:top_k]]

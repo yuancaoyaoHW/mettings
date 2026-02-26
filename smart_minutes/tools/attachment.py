@@ -1,10 +1,11 @@
-"""Attachment tools: policy list and search by topic via retrieval."""
+"""附件工具：按会议取政策列表、按议题在附件内检索。"""
 from typing import List
 
 from smart_minutes.contracts import IRetrieval
 
 
 def _to_ref(h: dict) -> dict:
+    """hit 转 ref 字典。"""
     return {
         "pk": h.get("pk"),
         "score": h.get("score", 0.0),
@@ -24,7 +25,7 @@ def get_attachments_by_meeting(
     meeting_type: str,
     meeting_name: str,
 ) -> List[dict]:
-    """Policy/attachment list for meeting. Filter source=attachment, level1=meeting."""
+    """会议相关政策/附件列表：source=attachment、level1=会议类型/名。"""
     level1 = meeting_type or meeting_name or ""
     if not level1:
         return []

@@ -1,9 +1,9 @@
-"""Abstract interfaces for smart_minutes (dependency inversion)."""
+"""智能纪要抽象接口（依赖倒置，便于注入与替换实现）。"""
 from typing import Any, List, Optional, Protocol
 
 
 class IRetrieval(Protocol):
-    """Retrieval interface: filter/query -> list of chunks."""
+    """检索接口：按条件/查询返回 chunk 列表。"""
 
     def search(
         self,
@@ -17,24 +17,24 @@ class IRetrieval(Protocol):
         top_k: int = 5,
         **kwargs: Any,
     ) -> List[dict]:
-        """Hybrid/search with optional filters. Returns list of dicts with pk, score, page_content, source, level1, level2, author, time, version, topic (if needed)."""
+        """混合检索（可带过滤），返回含 pk、score、page_content、source 等字段的 dict 列表。"""
         ...
 
 
 class IMappingStore(Protocol):
-    """Mapping query interface: oral -> formal name, meeting_type -> professional terms."""
+    """映射查询接口：口头称呼→正式人名，会议类型→专业名词。"""
 
     def resolve_oral_to_formal(self, oral_name: str) -> Optional[str]:
-        """Resolve oral/nickname to formal person name. Returns None if not found."""
+        """口头/昵称 → 正式人名，未命中返回 None。"""
         ...
 
     def get_professional_terms(self, meeting_type: str, meeting_name: str) -> List[str]:
-        """Get professional terms for meeting type/name. Returns empty list if none."""
+        """按会议类型/名称取专业名词，无则返回空列表。"""
         ...
 
 
 class ISpeakerResolver(Protocol):
-    """Speaker fusion: face/voice/venue results -> formal name."""
+    """发言人融合接口：人脸/声纹/会场结果 → 正式人名。"""
 
     def resolve_speaker(
         self,
@@ -42,5 +42,5 @@ class ISpeakerResolver(Protocol):
         voice_result: Any = None,
         venue_name: Optional[str] = None,
     ) -> Optional[str]:
-        """Fuse face/voice/venue to one formal speaker name. Returns None if cannot determine."""
+        """多维度融合为一名发言人正式名，无法确定时返回 None。"""
         ...

@@ -1,11 +1,11 @@
-"""Pydantic/SQL models for minutes, topics, attachments (optional)."""
+"""纪要/议题/附件等 Pydantic 或持久化模型。"""
 from typing import Optional
 
 from pydantic import BaseModel
 
 
 class MeetingMeta(BaseModel):
-    """Meeting identifier."""
+    """会议标识。"""
 
     meeting_type: Optional[str] = None
     meeting_name: Optional[str] = None
@@ -14,10 +14,10 @@ class MeetingMeta(BaseModel):
 
 
 class ChunkRef(BaseModel):
-    """One chunk from vector store."""
+    """向量库中的单条 chunk。"""
 
     pk: Optional[int] = None
-    source: str = ""
+    source: str = ""  # minutes / attachment / draft
     type: str = ""
     level1: str = ""
     level2: str = ""

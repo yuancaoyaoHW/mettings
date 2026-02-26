@@ -1,4 +1,4 @@
-"""Minutes generation agent: run suggested tools, assemble context, call LLM under token budget."""
+"""纪要生成 Agent：执行工具序列、组装上下文、在 token 预算内调用 LLM。"""
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
@@ -11,7 +11,7 @@ if False:
 
 
 class MinutesAgent:
-    """Runs tool sequence, merges results, truncates to context_token_budget, generates minutes."""
+    """按建议顺序执行工具，合并结果，按 context_token_budget 截断后生成纪要。"""
 
     def __init__(
         self,
@@ -33,7 +33,7 @@ class MinutesAgent:
         *,
         retrieve_only: bool = False,
     ) -> MinutesResponse:
-        """Execute tool list, collect references, optionally call LLM. Respects context_token_budget."""
+        """执行工具列表、收集引用，可选调用 LLM；遵守 context_token_budget。"""
         refs: List[ReferenceItem] = []
         resolved_speakers: List[str] = []
         mapped_terms: List[str] = []
@@ -100,7 +100,7 @@ class MinutesAgent:
         )
 
     def _run_one_tool(self, tool_name: str, params: dict, request: MinutesRequest) -> Any:
-        """Dispatch to tools/adapters."""
+        """按工具名分发到 tools/adapters。"""
         from smart_minutes.tools import rag, mapping, speaker, attachment, draft
         top_k = params.get("top_k", getattr(self._config, "default_top_k", 5))
         coll = getattr(self._config, "collection_name", "") or ""
@@ -139,6 +139,7 @@ class MinutesAgent:
         resolved_speakers: List[str],
         request: MinutesRequest,
     ) -> List[str]:
+        """组装上下文片段：历史模板、同类议题、专业词、发言人、口水稿。"""
         parts = []
         # 历史纪要模板：同系列 minutes 的 refs
         template_refs = [r for r in refs if r.source == "minutes"]
@@ -157,7 +158,7 @@ class MinutesAgent:
         return parts
 
     def _truncate_to_budget(self, parts: List[str], budget: int) -> str:
-        """Simple char-based truncation (≈4 chars/token for Chinese)."""
+        """按 token 预算截断（中文约 4 字/token 粗算）。"""
         approx_tokens = budget * 4
         out = []
         for p in parts:
@@ -171,5 +172,5 @@ class MinutesAgent:
         return "\n\n".join(out)
 
     def _generate_minutes(self, request: MinutesRequest, context: str) -> str:
-        """Placeholder: no LLM call in Phase 1; return stub."""
+        """占位：未接 LLM 时返回 stub；可接入 LangChain 等生成正文。"""
         return f"[纪要占位] 会议: {request.meeting_name or request.meeting_type or '未命名'}\n议题: {', '.join(request.topics)}\n\n参考上下文已纳入，待接入 LLM 生成正文。"

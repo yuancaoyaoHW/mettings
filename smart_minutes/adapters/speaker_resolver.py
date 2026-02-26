@@ -1,13 +1,9 @@
-"""ISpeakerResolver implementation: fuse face/voice/venue -> formal name."""
+"""ISpeakerResolver 实现：人脸/声纹/会场 → 正式人名。"""
 from typing import Any, Optional
 
 
 class SpeakerResolverAdapter:
-    """
-    Implements ISpeakerResolver.
-    Fuse face_result, voice_result, venue_name (from external APIs) -> formal name.
-    Wire real face/voice/venue service URLs in api_config and call them in resolve_speaker.
-    """
+    """实现 ISpeakerResolver；可配置外部人脸/声纹 API，按置信度融合。"""
 
     def __init__(self, api_config: Optional[dict] = None):
         self._api_config = api_config or {}
@@ -18,10 +14,7 @@ class SpeakerResolverAdapter:
         voice_result: Any = None,
         venue_name: Optional[str] = None,
     ) -> Optional[str]:
-        """
-        Fuse multi-dimensional inputs to one speaker. Stub: use venue_name or dict name fields.
-        Production: call face/voice APIs, then vote or weight by confidence.
-        """
+        """多维度融合为一名发言人；当前按 venue 或 dict 的 name/置信度取最优。"""
         candidates = []
         if venue_name:
             candidates.append((venue_name, 0.8))

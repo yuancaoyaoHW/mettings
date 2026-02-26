@@ -1,13 +1,10 @@
-"""Draft tools: segment draft by topics (this meeting, in-memory)."""
+"""口水稿工具：按议题在内存中分割（本次会议）。"""
 import re
 from typing import List
 
 
 def get_draft_segments_by_topics(draft_text: str, topic_names: List[str]) -> List[dict]:
-    """
-    Segment draft_text by topic_names in memory. Uses keyword match and sentence boundaries;
-    no Milvus. Returns list of {topic, page_content} for agent to include in context.
-    """
+    """按议题名对口水稿做内存分割（关键词+句界），返回 {topic, page_content} 列表。"""
     if not draft_text or not topic_names:
         return []
     segments = []

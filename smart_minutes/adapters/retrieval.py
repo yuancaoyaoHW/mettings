@@ -1,8 +1,9 @@
-"""IRetrieval implementation wrapping Milvus hybrid search."""
+"""IRetrieval 实现：封装 Milvus 混合检索。"""
 from typing import Any, List, Optional
 
 
 def _escape(s: str) -> str:
+    """Milvus 字符串转义（防注入）。"""
     return s.replace("\\", "\\\\").replace('"', '\\"')
 
 
@@ -14,6 +15,7 @@ def _build_expr(
     author_filter: Optional[str] = None,
     type_filter: Optional[str] = None,
 ) -> Optional[str]:
+    """拼装 Milvus 过滤表达式。"""
     clauses = []
     if source_filter:
         clauses.append(f'source == "{_escape(source_filter)}"')
@@ -29,7 +31,7 @@ def _build_expr(
 
 
 def _hits_to_dicts(results: Any, output_fields: Optional[List[str]] = None) -> List[dict]:
-    """Convert client search results to list of dicts (pk, score, page_content, source, ...)."""
+    """将 client 返回的 hits 转为统一 dict 列表（pk、score、page_content 等）。"""
     default_fields = ["text", "source", "level1", "level2", "author", "time", "version", "topic"]
     out = []
     if not results or not hasattr(results, "__getitem__"):
@@ -56,7 +58,7 @@ def _hits_to_dicts(results: Any, output_fields: Optional[List[str]] = None) -> L
 
 
 class RetrievalAdapter:
-    """Implements IRetrieval. Build expr from filters, call client.search, return unified list."""
+    """实现 IRetrieval：按过滤条件拼 expr，调用 client.search，返回统一列表。"""
 
     def __init__(self, client: Any, collection_name: str):
         self._client = client
@@ -74,7 +76,7 @@ class RetrievalAdapter:
         top_k: int = 5,
         **kwargs: Any,
     ) -> List[dict]:
-        """Build filter expr, call client.search(knowledge_base_name=collection_name, ...). Return list of dicts."""
+        """按过滤条件拼 expr，调用 client.search，返回 dict 列表。"""
         if self._client is None:
             return []
         expr = _build_expr(

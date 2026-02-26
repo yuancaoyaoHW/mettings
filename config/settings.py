@@ -1,19 +1,21 @@
-"""Application settings from env."""
+"""从环境变量读取的应用配置。"""
 import os
 from typing import Optional
 
 
 def _str(key: str, default: str = "") -> str:
+    """读环境变量字符串。"""
     return os.environ.get(key, default)
 
 
 def _int(key: str, default: int = 0) -> int:
+    """读环境变量整数。"""
     v = os.environ.get(key)
     return int(v) if v is not None else default
 
 
 class Settings:
-    """Global settings from environment."""
+    """全局配置（Milvus、Embedding、LLM、智能纪要等）。"""
 
     # Milvus
     milvus_uri: str = _str("MILVUS_URI")

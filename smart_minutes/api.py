@@ -1,4 +1,4 @@
-"""Unified facade: request -> router/agent -> response."""
+"""统一门面：请求 → 路由/Agent → 响应。"""
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Optional
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 class SmartMinutesService:
-    """Single entry point for smart minutes. Depends on injected retrieval/mapping/speaker."""
+    """智能纪要唯一入口，依赖注入的检索/映射/发言人实现。"""
 
     def __init__(
         self,
@@ -28,7 +28,7 @@ class SmartMinutesService:
         self._config = config or SmartMinutesConfig.from_env()
 
     def run(self, request: MinutesRequest, *, retrieve_only: bool = False) -> MinutesResponse:
-        """Execute minutes generation or retrieve-only. Uses router + agent internally."""
+        """执行纪要生成或仅检索；内部走路由 + Agent。"""
         from smart_minutes.agents.minutes_agent import MinutesAgent
         from smart_minutes.agents.router import suggest_tools
         tool_suggestions = suggest_tools(request)

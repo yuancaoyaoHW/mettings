@@ -1,23 +1,20 @@
-"""Intent router: suggest tool sequence from request context."""
+"""意图路由：根据请求上下文给出建议的工具调用序列。"""
 from typing import Any, List
 
 from smart_minutes.schemas import MinutesRequest
 
 
 def suggest_tools(request: MinutesRequest) -> List[dict]:
-    """
-    Suggest ordered list of tool calls (name + params) from request.
-    Rule-based: no LLM. Agent may still append or skip based on results.
-    """
+    """按规则产出工具调用列表（名称+参数）；无 LLM，Agent 可据结果追加或跳过。"""
     steps: List[dict] = []
 
-    # 1. Mapping (no dependency)
+    # 1. 映射（无依赖）
     if request.oral_names or request.person_names:
         steps.append({"tool": "mapping", "params": {"oral_names": request.oral_names, "person_names": request.person_names}})
     if request.meeting_type or request.meeting_name:
         steps.append({"tool": "professional_terms", "params": {"meeting_type": request.meeting_type or "", "meeting_name": request.meeting_name or ""}})
 
-    # 2. RAG (can run in parallel in agent)
+    # 2. RAG（在 Agent 中可并行）
     opts = request.options or {}
     top_k = opts.get("top_k", 5)
 
@@ -38,11 +35,11 @@ def suggest_tools(request: MinutesRequest) -> List[dict]:
     for t in request.topics:
         steps.append({"tool": "search_attachments_by_topic", "params": {"topic_name": t, "query": t, "top_k": top_k}})
 
-    # 3. Draft segmentation (this meeting)
+    # 3. 口水稿按议题分割（本次会议）
     if request.draft_text and request.topics:
         steps.append({"tool": "get_draft_segments_by_topics", "params": {"draft_text": request.draft_text, "topic_names": request.topics}})
 
-    # 4. Speaker (if realtime input)
+    # 4. 发言人融合（若有实时输入）
     if request.realtime_speaker:
         steps.append({"tool": "resolve_speaker", "params": {"face_result": getattr(request.realtime_speaker, "face_result", None), "voice_result": getattr(request.realtime_speaker, "voice_result", None), "venue_name": getattr(request.realtime_speaker, "venue_name", None)}})
 
