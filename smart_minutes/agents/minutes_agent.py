@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 from smart_minutes.schemas import ErrorItem, MinutesRequest, MinutesResponse, ReferenceItem
 
@@ -35,6 +35,72 @@ class MinutesAgent:
         retrieve_only: bool = False,
     ) -> MinutesResponse:
         """执行工具列表、收集引用，可选调用 LLM；遵守 context_token_budget。"""
+        refs, resolved_speakers, mapped_terms, warnings, errors = self._execute_tools(request, tool_suggestions)
+        if retrieve_only:
+            return MinutesResponse(
+                minutes_content="",
+                references=refs,
+                resolved_speakers=resolved_speakers,
+                mapped_terms=mapped_terms,
+                errors=errors,
+                warnings=warnings,
+                partial=len(warnings) > 0 or len(errors) > 0,
+            )
+
+        context_parts = self._assemble_context(refs, mapped_terms, resolved_speakers, request)
+        budget = getattr(self._config, "context_token_budget", 8000)
+        truncated = self._truncate_to_budget(context_parts, budget)
+        try:
+            minutes_content = self._generate_minutes(request, truncated)
+        except Exception as e:
+            errors.append(ErrorItem(code="GENERATE_ERROR", message=str(e)))
+            minutes_content = ""
+        return MinutesResponse(
+            minutes_content=minutes_content,
+            references=refs,
+            resolved_speakers=resolved_speakers,
+            mapped_terms=mapped_terms,
+            errors=errors,
+            warnings=warnings,
+            partial=len(warnings) > 0 or len(errors) > 0,
+        )
+
+    def prepare_generation(self, request: MinutesRequest, tool_suggestions: List[dict]) -> Dict[str, Any]:
+        """执行非流式准备阶段：工具调用、上下文组装、预算裁剪、Prompt 构建。"""
+        refs, resolved_speakers, mapped_terms, warnings, errors = self._execute_tools(request, tool_suggestions)
+        response = MinutesResponse(
+            minutes_content="",
+            references=refs,
+            resolved_speakers=resolved_speakers,
+            mapped_terms=mapped_terms,
+            errors=errors,
+            warnings=warnings,
+            partial=len(warnings) > 0 or len(errors) > 0,
+        )
+        context_parts = self._assemble_context(refs, mapped_terms, resolved_speakers, request)
+        budget = getattr(self._config, "context_token_budget", 8000)
+        truncated = self._truncate_to_budget(context_parts, budget)
+        system_prompt, user_prompt = self._build_prompts(request, truncated)
+        return {
+            "response": response,
+            "context": truncated,
+            "system_prompt": system_prompt,
+            "user_prompt": user_prompt,
+            "token_budget": budget,
+        }
+
+    def stream_generate_minutes(self, request: MinutesRequest, context: str) -> Iterator[str]:
+        """基于已裁剪上下文调用 LLM 流式生成 token。"""
+        from services.llm import stream_complete
+        system_prompt, user_prompt = self._build_prompts(request, context)
+        return stream_complete(user_prompt, system=system_prompt)
+
+    def _execute_tools(
+        self,
+        request: MinutesRequest,
+        tool_suggestions: List[dict],
+    ) -> tuple[List[ReferenceItem], List[str], List[str], List[str], List[ErrorItem]]:
+        """执行工具并汇总结果。"""
         refs: List[ReferenceItem] = []
         resolved_speakers: List[str] = []
         mapped_terms: List[str] = []
@@ -103,35 +169,7 @@ class MinutesAgent:
                 resolved_speakers.append(out)
             elif isinstance(out, list) and tool_name in ("mapping", "professional_terms"):
                 mapped_terms.extend(x for x in out if isinstance(x, str))
-
-        if retrieve_only:
-            return MinutesResponse(
-                minutes_content="",
-                references=refs,
-                resolved_speakers=resolved_speakers,
-                mapped_terms=mapped_terms,
-                warnings=warnings,
-                partial=len(warnings) > 0,
-            )
-
-        # Assemble prompt under token budget and generate
-        context_parts = self._assemble_context(refs, mapped_terms, resolved_speakers, request)
-        budget = getattr(self._config, "context_token_budget", 8000)
-        truncated = self._truncate_to_budget(context_parts, budget)
-        try:
-            minutes_content = self._generate_minutes(request, truncated)
-        except Exception as e:
-            errors.append(ErrorItem(code="GENERATE_ERROR", message=str(e)))
-            minutes_content = ""
-        return MinutesResponse(
-            minutes_content=minutes_content,
-            references=refs,
-            resolved_speakers=resolved_speakers,
-            mapped_terms=mapped_terms,
-            errors=errors,
-            warnings=warnings,
-            partial=len(warnings) > 0 or len(errors) > 0,
-        )
+        return refs, resolved_speakers, mapped_terms, warnings, errors
 
     def _run_one_tool(self, tool_name: str, params: dict, request: MinutesRequest) -> Any:
         """按工具名分发到 tools/adapters。"""
@@ -210,6 +248,16 @@ class MinutesAgent:
     def _generate_minutes(self, request: MinutesRequest, context: str) -> str:
         """根据上下文调用 LLM 生成纪要正文；无配置时返回占位。"""
         from services.llm import complete
+        system, user = self._build_prompts(request, context)
+        out = complete(user, system=system)
+        meeting_label = request.meeting_name or request.meeting_type or "未命名"
+        topics_label = "、".join(request.topics) if request.topics else "（未提供）"
+        if not out:
+            return f"[纪要占位] 会议: {meeting_label}\n议题: {topics_label}\n\n参考上下文已纳入，LLM 未配置或调用失败。"
+        return out
+
+    def _build_prompts(self, request: MinutesRequest, context: str) -> tuple[str, str]:
+        """统一构建 system/user prompt，便于非流式与流式复用。"""
         meeting_label = request.meeting_name or request.meeting_type or "未命名"
         topics_label = "、".join(request.topics) if request.topics else "（未提供）"
         system = (
@@ -217,7 +265,4 @@ class MinutesAgent:
             "纪要应包含会议名称、议题、讨论要点、结论与待办（如有）。参考上下文中的历史模板与同类议题风格仅供参考，不要照抄。"
         )
         user = f"## 本次会议\n会议: {meeting_label}\n议题: {topics_label}\n\n## 参考上下文\n{context}\n\n请基于以上内容生成会议纪要正文。"
-        out = complete(user, system=system)
-        if not out:
-            return f"[纪要占位] 会议: {meeting_label}\n议题: {topics_label}\n\n参考上下文已纳入，LLM 未配置或调用失败。"
-        return out
+        return system, user

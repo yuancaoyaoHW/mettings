@@ -157,14 +157,34 @@ uvicorn api.main:app --host 0.0.0.0 --port 8000
 ### 3.3 接口与契约
 
 - **POST /api/smart-minutes/generate**：生成纪要，请求体为 `MinutesRequest` 的 JSON，响应为 `MinutesResponse`。
-- **POST /api/smart-minutes/retrieve**：仅检索，不生成正文；请求体同，响应中 `minutes_content` 为空，`references` 等有值。
+ - **POST /api/smart-minutes/generate-stream**：流式生成纪要，SSE 协议返回阶段事件与正文 token。
+ - **POST /api/smart-minutes/retrieve**：仅检索，不生成正文；请求体同，响应中 `minutes_content` 为空，`references` 等有值。
 - **GET /health**：健康检查。
 
 请求/响应字段见 [使用指南 - 请求与响应](USAGE.md#二请求与响应)。
 
----
-
-## 四、与现有 Milvus 混合检索的对接要点
+### 3.4 流式接口与 SSE 协议
+ 
+ 接口：`POST /api/smart-minutes/generate-stream`
+ 
+ 响应为 `Content-Type: text/event-stream`，包含两类消息：
+ 
+ 1. **阶段事件 (Stage Event)**：
+    - 格式：`data: {"stage": "...", "think": "...", ...}`
+    - 用途：前端展示“正在执行某步骤”。
+    - 关键事件：
+      - `smart_minutes_start`：开始执行。
+      - `prepare_done`：工具执行完毕，上下文准备就绪（含 token 预算）。
+      - `warnings`：执行结束前的告警汇总。
+ 
+ 2. **Token 数据 (OpenAI Chunk)**：
+    - 格式：`data: {"object": "chat.completion.chunk", "choices": [{"delta": {"content": "..."}}]}`
+    - 用途：流式拼接纪要正文。
+    - 结束标志：`data: [DONE]`
+ 
+ ---
+ 
+ ## 四、与现有 Milvus 混合检索的对接要点
 
 若已有 `MilvusHybridClient.search(query_text, knowledge_base_name, top_k, topic_filter=..., file_list=...)`：
 

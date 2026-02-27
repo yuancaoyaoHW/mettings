@@ -29,7 +29,8 @@ uvicorn api.main:app --host 0.0.0.0 --port 8000
 
 - 健康检查：`GET http://localhost:8000/health`
 - 生成纪要：`POST http://localhost:8000/api/smart-minutes/generate`
-- 仅检索：`POST http://localhost:8000/api/smart-minutes/retrieve`
+ - 流式生成：`POST http://localhost:8000/api/smart-minutes/generate-stream`
+ - 仅检索：`POST http://localhost:8000/api/smart-minutes/retrieve`
 
 ### 1.2 Python 进程内调用
 
@@ -115,20 +116,34 @@ print(resp.references)     # 检索到的参考片段
 ```
 
 **仅检索（不生成正文）：**
-
-```json
-{
-  "meeting_name": "产品周会",
-  "topics": ["需求评审"],
-  "person_names": ["张三"]
-}
-```
-
-调用 **POST /api/smart-minutes/retrieve** 时请求体同上；响应中 `minutes_content` 为空，`references`、`mapped_terms`、`resolved_speakers` 为检索与映射结果。
-
----
-
-## 三、环境变量
+ 
+ ```json
+ {
+   "meeting_name": "产品周会",
+   "topics": ["需求评审"],
+   "person_names": ["张三"]
+ }
+ ```
+ 
+ 调用 **POST /api/smart-minutes/retrieve** 时请求体同上；响应中 `minutes_content` 为空，`references`、`mapped_terms`、`resolved_speakers` 为检索与映射结果。
+ 
+ **流式调用（SSE）：**
+ 
+ ```bash
+ curl -N -X POST "http://localhost:8000/api/smart-minutes/generate-stream" \
+   -H "Content-Type: application/json" \
+   -d '{
+     "meeting_name": "周例会",
+     "topics": ["进度同步"],
+     "oral_names": ["老张"]
+   }'
+ ```
+ 
+ 你会先收到 JSON 格式的阶段事件，再收到 OpenAI 格式的 token 流，最后收到 `[DONE]`。
+ 
+ ---
+ 
+ ## 三、环境变量
 
 | 变量 | 说明 | 示例 |
 |------|------|------|

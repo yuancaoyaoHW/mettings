@@ -1,7 +1,7 @@
 """统一门面：请求 → 路由/Agent → 响应。"""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from smart_minutes.schemas import MinutesRequest, MinutesResponse
 
@@ -39,3 +39,18 @@ class SmartMinutesService:
             config=self._config,
         )
         return agent.run(request, tool_suggestions=tool_suggestions, retrieve_only=retrieve_only)
+
+    def prepare_generation(self, request: MinutesRequest) -> Dict[str, Any]:
+        """执行非流式准备阶段，返回可用于流式生成的上下文与 Prompt。"""
+        from smart_minutes.agents.minutes_agent import MinutesAgent
+        from smart_minutes.agents.router import suggest_tools
+        tool_suggestions = suggest_tools(request)
+        agent = MinutesAgent(
+            retrieval=self._retrieval,
+            mapping_store=self._mapping_store,
+            speaker_resolver=self._speaker_resolver,
+            config=self._config,
+        )
+        prepared = agent.prepare_generation(request, tool_suggestions=tool_suggestions)
+        prepared["tool_suggestions"] = tool_suggestions
+        return prepared

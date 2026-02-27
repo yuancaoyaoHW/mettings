@@ -18,7 +18,7 @@
 ```
 smart_minutes/     # 智能纪要独立功能包（门面 + 契约 + Agent + 工具）
 pipelines/         # 数据入库与向量化
-api/               # FastAPI：/api/smart-minutes/generate、/retrieve
+api/               # FastAPI：/api/smart-minutes/generate、/retrieve、/generate-stream
 config/            # 配置
 data/              # 数据模型
 services/          # 共享能力（embedding、llm）
@@ -102,6 +102,28 @@ pip install -r requirements.txt
 uvicorn api.main:app --reload   # 启动 API
 ```
 
-## License
+## Linux 子模块部署
+ 
+ 如果你将本仓库作为 Git Submodule 或子目录放置在主工程的 `src/service/smart_minutes` 下，并希望独立启动 HTTP 服务：
+ 
+ ```bash
+ # 假设在主工程根目录
+ export PYTHONPATH=$(pwd)
+ 
+ # 启动服务（建议用 Systemd 或 Supervisor 管理）
+ uvicorn src.service.smart_minutes.api.main:app --host 0.0.0.0 --port 18080
+ ```
+ 
+ 若需通过 Nginx 反向代理流式接口，请务必关闭缓冲：
+ 
+ ```nginx
+ location /api/smart-minutes/generate-stream {
+     proxy_pass http://127.0.0.1:18080;
+     proxy_buffering off;  # 关键：否则 SSE 会被缓冲
+     proxy_cache off;
+ }
+ ```
+ 
+ ## License
 
 Private / 内部使用
