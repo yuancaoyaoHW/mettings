@@ -1,6 +1,8 @@
 """智能纪要抽象接口（依赖倒置，便于注入与替换实现）。"""
 from typing import Any, List, Optional, Protocol
 
+from smart_minutes.schemas import SpeakerResolution
+
 
 class IRetrieval(Protocol):
     """检索接口：按条件/查询返回 chunk 列表。"""
@@ -41,6 +43,6 @@ class ISpeakerResolver(Protocol):
         face_result: Any = None,
         voice_result: Any = None,
         venue_name: Optional[str] = None,
-    ) -> Optional[str]:
-        """多维度融合为一名发言人正式名，无法确定时返回 None。"""
+    ) -> Optional[SpeakerResolution]:
+        """多维度融合发言人，返回归属结果（含置信度/候选集）。"""
         ...

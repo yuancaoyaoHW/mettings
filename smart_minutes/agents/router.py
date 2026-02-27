@@ -17,17 +17,56 @@ def suggest_tools(request: MinutesRequest) -> List[dict]:
     # 2. RAG（在 Agent 中可并行）
     opts = request.options or {}
     top_k = opts.get("top_k", 5)
+    weights = opts.get("retrieval_weights", {}) if isinstance(opts.get("retrieval_weights", {}), dict) else {}
 
     if request.meeting_type or request.meeting_name:
-        steps.append({"tool": "retrieve_latest_minutes_by_series", "params": {"meeting_type": request.meeting_type or "", "meeting_name": request.meeting_name or "", "top_k": top_k}})
+        steps.append(
+            {
+                "tool": "retrieve_latest_minutes_by_series",
+                "params": {
+                    "meeting_type": request.meeting_type or "",
+                    "meeting_name": request.meeting_name or "",
+                    "project": request.project or "",
+                    "department": request.department or "",
+                    "organization": request.organization or "",
+                    "top_k": top_k,
+                },
+            }
+        )
     for t in request.topics:
         steps.append({"tool": "retrieve_by_topic", "params": {"topic_name": t, "top_k": top_k}})
     for p in request.person_names:
         steps.append({"tool": "retrieve_by_person", "params": {"person_name": p, "top_k": top_k}})
     for o in request.open_issues:
-        steps.append({"tool": "retrieve_similar_todos_or_issues", "params": {"text": o, "top_k": top_k}})
+        oi_weights = weights.get("open_issue", {}) if isinstance(weights.get("open_issue", {}), dict) else {}
+        todo_weights = weights.get("todo", {}) if isinstance(weights.get("todo", {}), dict) else {}
+        steps.append(
+            {
+                "tool": "retrieve_similar_todos_or_issues",
+                "params": {
+                    "text": o,
+                    "top_k": top_k,
+                    "todo_weight": float(todo_weights.get("type_weight", 1.0)),
+                    "issue_weight": float(oi_weights.get("type_weight", 1.0)),
+                    "dense_weight": oi_weights.get("dense_weight", opts.get("dense_weight")),
+                    "sparse_weight": oi_weights.get("sparse_weight", opts.get("sparse_weight")),
+                },
+            }
+        )
     for c in request.conclusions:
-        steps.append({"tool": "retrieve_similar_conclusions", "params": {"text": c, "top_k": top_k}})
+        c_weights = weights.get("conclusion", {}) if isinstance(weights.get("conclusion", {}), dict) else {}
+        steps.append(
+            {
+                "tool": "retrieve_similar_conclusions",
+                "params": {
+                    "text": c,
+                    "top_k": top_k,
+                    "type_weight": c_weights.get("type_weight"),
+                    "dense_weight": c_weights.get("dense_weight", opts.get("dense_weight")),
+                    "sparse_weight": c_weights.get("sparse_weight", opts.get("sparse_weight")),
+                },
+            }
+        )
     if request.draft_text:
         steps.append({"tool": "retrieve_similar_topic_by_draft", "params": {"draft_text": request.draft_text[:2000], "top_k": top_k}})
     if request.meeting_type or request.meeting_name:

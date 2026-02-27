@@ -2,10 +2,19 @@
 
 基于 LLM Agent 的智能会议纪要模块：历史纪要检索、模板与动态 Prompt 生成、发言人融合、映射与附件检索等。
 
+## 当前能力（2026-02）
+
+- 结构化输出：`MinutesResponse` 支持 `structured_output`（会议信息、议题、材料引用、追溯信息）。
+- 发言人融合：返回 `speaker_resolutions`（候选集、置信度、冲突状态）。
+- 同系列检索：支持会议名称规范化、`project/department/organization` 过滤。
+- 分类型检索：支持 `todo/open_issue/conclusion` 分别检索与权重参数透传。
+- 入库校验：`pipelines/ingest.py` 对 `source=minutes` 启用 type 归一化与规则校验。
+
 ## 文档
 
 - **[对接手册](docs/INTEGRATION.md)**：进程内/HTTP 对接、依赖注入、与现有 Milvus 对接要点、数据约定
 - **[使用指南](docs/USAGE.md)**：快速开始、请求与响应、环境变量、能力与输入对应、常见问题
+- **[需求文档](docs/requirements_smart_minutes.md)**：按目标→输入与检索→生成→约束→验收的完整规格
 
 ## 技术栈
 
@@ -100,7 +109,33 @@ python -m venv .venv
 .venv\Scripts\activate   # Windows
 pip install -r requirements.txt
 uvicorn api.main:app --reload   # 启动 API
+pytest -q                        # 运行测试
 ```
+
+## 最小请求示例（含 retrieval_weights）
+
+```json
+{
+  "meeting_type": "周会",
+  "meeting_name": "产品周会",
+  "project": "alpha",
+  "department": "product",
+  "topics": ["需求评审", "进度同步"],
+  "open_issues": ["测试环境稳定性不足"],
+  "conclusions": ["本周冻结需求范围"],
+  "draft_text": "今天先过需求评审，再讨论上线节奏。",
+  "options": {
+    "top_k": 5,
+    "retrieval_weights": {
+      "todo": { "type_weight": 0.8, "dense_weight": 0.6, "sparse_weight": 0.4 },
+      "open_issue": { "type_weight": 1.4, "dense_weight": 0.7, "sparse_weight": 0.3 },
+      "conclusion": { "type_weight": 1.2, "dense_weight": 0.65, "sparse_weight": 0.35 }
+    }
+  }
+}
+```
+
+该请求可用于 `POST /api/smart-minutes/generate` 或 `POST /api/smart-minutes/retrieve`。
 
 ## Linux 子模块部署
  

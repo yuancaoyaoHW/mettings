@@ -4,7 +4,18 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, Iterator, List, Optional
 
-from smart_minutes.schemas import ErrorItem, MinutesRequest, MinutesResponse, ReferenceItem
+from smart_minutes.schemas import (
+    ErrorItem,
+    MaterialCitation,
+    MeetingInfo,
+    MinutesRequest,
+    MinutesResponse,
+    ReferenceItem,
+    SpeakerResolution,
+    StructuredMinutesOutput,
+    TopicSection,
+    TraceabilityInfo,
+)
 
 if False:
     from smart_minutes.contracts import IMappingStore, IRetrieval, ISpeakerResolver
@@ -35,16 +46,19 @@ class MinutesAgent:
         retrieve_only: bool = False,
     ) -> MinutesResponse:
         """执行工具列表、收集引用，可选调用 LLM；遵守 context_token_budget。"""
-        refs, resolved_speakers, mapped_terms, warnings, errors = self._execute_tools(request, tool_suggestions)
+        refs, resolved_speakers, speaker_resolutions, mapped_terms, warnings, errors = self._execute_tools(request, tool_suggestions)
+        structured_output = self._build_structured_output(request, refs, speaker_resolutions)
         if retrieve_only:
             return MinutesResponse(
                 minutes_content="",
                 references=refs,
                 resolved_speakers=resolved_speakers,
+                speaker_resolutions=speaker_resolutions,
                 mapped_terms=mapped_terms,
                 errors=errors,
                 warnings=warnings,
                 partial=len(warnings) > 0 or len(errors) > 0,
+                structured_output=structured_output,
             )
 
         context_parts = self._assemble_context(refs, mapped_terms, resolved_speakers, request)
@@ -59,23 +73,28 @@ class MinutesAgent:
             minutes_content=minutes_content,
             references=refs,
             resolved_speakers=resolved_speakers,
+            speaker_resolutions=speaker_resolutions,
             mapped_terms=mapped_terms,
             errors=errors,
             warnings=warnings,
             partial=len(warnings) > 0 or len(errors) > 0,
+            structured_output=structured_output,
         )
 
     def prepare_generation(self, request: MinutesRequest, tool_suggestions: List[dict]) -> Dict[str, Any]:
         """执行非流式准备阶段：工具调用、上下文组装、预算裁剪、Prompt 构建。"""
-        refs, resolved_speakers, mapped_terms, warnings, errors = self._execute_tools(request, tool_suggestions)
+        refs, resolved_speakers, speaker_resolutions, mapped_terms, warnings, errors = self._execute_tools(request, tool_suggestions)
+        structured_output = self._build_structured_output(request, refs, speaker_resolutions)
         response = MinutesResponse(
             minutes_content="",
             references=refs,
             resolved_speakers=resolved_speakers,
+            speaker_resolutions=speaker_resolutions,
             mapped_terms=mapped_terms,
             errors=errors,
             warnings=warnings,
             partial=len(warnings) > 0 or len(errors) > 0,
+            structured_output=structured_output,
         )
         context_parts = self._assemble_context(refs, mapped_terms, resolved_speakers, request)
         budget = getattr(self._config, "context_token_budget", 8000)
@@ -99,10 +118,11 @@ class MinutesAgent:
         self,
         request: MinutesRequest,
         tool_suggestions: List[dict],
-    ) -> tuple[List[ReferenceItem], List[str], List[str], List[str], List[ErrorItem]]:
+    ) -> tuple[List[ReferenceItem], List[str], List[SpeakerResolution], List[str], List[str], List[ErrorItem]]:
         """执行工具并汇总结果。"""
         refs: List[ReferenceItem] = []
         resolved_speakers: List[str] = []
+        speaker_resolutions: List[SpeakerResolution] = []
         mapped_terms: List[str] = []
         warnings: List[str] = []
         errors: List[ErrorItem] = []
@@ -162,36 +182,69 @@ class MinutesAgent:
                                 time=it.get("time", ""),
                                 version=it.get("version", ""),
                                 topic=it.get("topic", ""),
+                                source_id=it.get("source_id", ""),
+                                source_position=it.get("source_position", ""),
+                                confidence=it.get("confidence"),
                             ))
                     elif isinstance(it, str) and tool_name in ("mapping", "professional_terms"):
                         mapped_terms.append(it)
             elif isinstance(out, str) and tool_name == "resolve_speaker" and out:
                 resolved_speakers.append(out)
+            elif isinstance(out, SpeakerResolution) and tool_name == "resolve_speaker":
+                speaker_resolutions.append(out)
+                if out.resolved_name:
+                    resolved_speakers.append(out.resolved_name)
+            elif isinstance(out, dict) and tool_name == "resolve_speaker":
+                sr = SpeakerResolution.model_validate(out)
+                speaker_resolutions.append(sr)
+                if sr.resolved_name:
+                    resolved_speakers.append(sr.resolved_name)
             elif isinstance(out, list) and tool_name in ("mapping", "professional_terms"):
                 mapped_terms.extend(x for x in out if isinstance(x, str))
-        return refs, resolved_speakers, mapped_terms, warnings, errors
+        return refs, resolved_speakers, speaker_resolutions, mapped_terms, warnings, errors
 
     def _run_one_tool(self, tool_name: str, params: dict, request: MinutesRequest) -> Any:
         """按工具名分发到 tools/adapters。"""
         from smart_minutes.tools import rag, mapping, speaker, attachment, draft
         top_k = params.get("top_k", getattr(self._config, "default_top_k", 5))
-        coll = getattr(self._config, "collection_name", "") or ""
-
         if tool_name == "mapping":
             names = params.get("oral_names") or []
             return [self._mapping_store.resolve_oral_to_formal(n) for n in names if self._mapping_store.resolve_oral_to_formal(n)]
         if tool_name == "professional_terms":
             return self._mapping_store.get_professional_terms(params.get("meeting_type", ""), params.get("meeting_name", ""))
         if tool_name == "retrieve_latest_minutes_by_series":
-            return rag.retrieve_latest_minutes_by_series(self._retrieval, params.get("meeting_type", ""), params.get("meeting_name", ""), top_k)
+            return rag.retrieve_latest_minutes_by_series(
+                self._retrieval,
+                params.get("meeting_type", ""),
+                params.get("meeting_name", ""),
+                top_k,
+                project=params.get("project", ""),
+                department=params.get("department", ""),
+                organization=params.get("organization", ""),
+            )
         if tool_name == "retrieve_by_topic":
             return rag.retrieve_by_topic(self._retrieval, params.get("topic_name", ""), top_k)
         if tool_name == "retrieve_by_person":
             return rag.retrieve_by_person(self._retrieval, params.get("person_name", ""), top_k)
         if tool_name == "retrieve_similar_todos_or_issues":
-            return rag.retrieve_similar_todos_or_issues(self._retrieval, params.get("text", ""), top_k)
+            return rag.retrieve_similar_todos_or_issues(
+                self._retrieval,
+                params.get("text", ""),
+                top_k,
+                todo_weight=float(params.get("todo_weight", 1.0)),
+                issue_weight=float(params.get("issue_weight", 1.0)),
+                dense_weight=params.get("dense_weight"),
+                sparse_weight=params.get("sparse_weight"),
+            )
         if tool_name == "retrieve_similar_conclusions":
-            return rag.retrieve_similar_conclusions(self._retrieval, params.get("text", ""), top_k)
+            return rag.retrieve_similar_conclusions(
+                self._retrieval,
+                params.get("text", ""),
+                top_k,
+                dense_weight=params.get("dense_weight"),
+                sparse_weight=params.get("sparse_weight"),
+                type_weight=params.get("type_weight"),
+            )
         if tool_name == "retrieve_similar_topic_by_draft":
             return rag.retrieve_similar_topic_by_draft(self._retrieval, params.get("draft_text", ""), top_k)
         if tool_name == "get_attachments_by_meeting":
@@ -262,7 +315,55 @@ class MinutesAgent:
         topics_label = "、".join(request.topics) if request.topics else "（未提供）"
         system = (
             "你是一名会议纪要撰写助手。请根据用户提供的会议信息与参考上下文，生成结构清晰、用语规范的会议纪要。"
-            "纪要应包含会议名称、议题、讨论要点、结论与待办（如有）。参考上下文中的历史模板与同类议题风格仅供参考，不要照抄。"
+            "纪要应包含会议名称、议题、讨论要点、结论与待办（如有）。"
+            "参考上下文中的历史模板与同类议题风格仅供参考，不要照抄。"
+            "必须严格区分“历史背景/上次遗留”和“本次新结论”，不要把历史结论当作本次结论。"
+            "关键事实或结论尽量附上来源标识。"
         )
         user = f"## 本次会议\n会议: {meeting_label}\n议题: {topics_label}\n\n## 参考上下文\n{context}\n\n请基于以上内容生成会议纪要正文。"
         return system, user
+
+    def _build_structured_output(
+        self,
+        request: MinutesRequest,
+        refs: List[ReferenceItem],
+        speaker_resolutions: List[SpeakerResolution],
+    ) -> StructuredMinutesOutput:
+        """构造基础结构化输出，便于前端渲染与后续追踪。"""
+        meeting_info = MeetingInfo(
+            meeting_type=request.meeting_type,
+            meeting_name=request.meeting_name,
+            location=request.venue_name,
+        )
+        topics = [TopicSection(topic_name=t) for t in request.topics]
+        materials: List[MaterialCitation] = []
+        history_ids: List[str] = []
+        attachment_positions: List[str] = []
+        for idx, ref in enumerate(refs):
+            source_id = ref.source_id or (str(ref.pk) if ref.pk is not None else f"ref-{idx}")
+            source_position = ref.source_position or (ref.level2 or ref.time or "")
+            if ref.source == "minutes":
+                history_ids.append(source_id)
+            if ref.source == "attachment":
+                attachment_positions.append(source_position or source_id)
+            materials.append(
+                MaterialCitation(
+                    source_type=ref.source,
+                    source_id=source_id,
+                    source_position=source_position,
+                    quote=ref.page_content[:200],
+                    topic_name=ref.topic or None,
+                )
+            )
+
+        traceability = TraceabilityInfo(
+            history_minutes_ids=history_ids,
+            attachment_positions=attachment_positions,
+            speaker_resolution=speaker_resolutions,
+        )
+        return StructuredMinutesOutput(
+            meeting_info=meeting_info,
+            topics=topics,
+            materials=materials,
+            traceability=traceability,
+        )

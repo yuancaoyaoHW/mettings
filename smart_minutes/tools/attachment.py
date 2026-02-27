@@ -17,6 +17,9 @@ def _to_ref(h: dict) -> dict:
         "time": h.get("time", ""),
         "version": h.get("version", ""),
         "topic": h.get("topic", ""),
+        "source_id": h.get("source_id", ""),
+        "source_position": h.get("source_position", ""),
+        "confidence": h.get("confidence"),
     }
 
 

@@ -14,6 +14,9 @@ def _build_expr(
     level1_filter: Optional[str] = None,
     author_filter: Optional[str] = None,
     type_filter: Optional[str] = None,
+    project_filter: Optional[str] = None,
+    department_filter: Optional[str] = None,
+    organization_filter: Optional[str] = None,
 ) -> Optional[str]:
     """拼装 Milvus 过滤表达式。"""
     clauses = []
@@ -27,6 +30,12 @@ def _build_expr(
         clauses.append(f'author == "{_escape(author_filter)}"')
     if type_filter:
         clauses.append(f'type == "{_escape(type_filter)}"')
+    if project_filter:
+        clauses.append(f'project == "{_escape(project_filter)}"')
+    if department_filter:
+        clauses.append(f'department == "{_escape(department_filter)}"')
+    if organization_filter:
+        clauses.append(f'organization == "{_escape(organization_filter)}"')
     return " and ".join(clauses) if clauses else None
 
 
@@ -53,6 +62,9 @@ def _hits_to_dicts(results: Any, output_fields: Optional[List[str]] = None) -> L
             "time": entity.get("time", ""),
             "version": entity.get("version", ""),
             "topic": entity.get("topic", ""),
+            "source_id": entity.get("source_id", ""),
+            "source_position": entity.get("source_position", ""),
+            "confidence": entity.get("confidence"),
         })
     return out
 
@@ -85,12 +97,15 @@ class RetrievalAdapter:
             level1_filter=level1_filter,
             author_filter=author_filter,
             type_filter=type_filter,
+            project_filter=kwargs.get("project_filter"),
+            department_filter=kwargs.get("department_filter"),
+            organization_filter=kwargs.get("organization_filter"),
         )
         try:
             if not callable(getattr(self._client, "search", None)):
                 return []
             file_list = [source_filter] if source_filter else None
-            kwargs: dict = {
+            payload: dict = {
                 "query_text": query_text,
                 "knowledge_base_name": self._collection_name,
                 "top_k": top_k,
@@ -98,8 +113,13 @@ class RetrievalAdapter:
                 "file_list": file_list,
             }
             if expr:
-                kwargs["filter"] = expr
-            raw = self._client.search(**kwargs)
+                payload["filter"] = expr
+
+            # 透传可选权重参数给底层检索实现（若不支持通常会被忽略或由调用方适配器处理）
+            for key, value in kwargs.items():
+                if key.endswith("_weight") and value is not None:
+                    payload[key] = value
+            raw = self._client.search(**payload)
             return _hits_to_dicts(raw)
         except Exception:
             return []

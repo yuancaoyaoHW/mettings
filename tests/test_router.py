@@ -34,3 +34,29 @@ def test_suggest_tools_with_draft_and_topics():
     steps = suggest_tools(req)
     assert any(s["tool"] == "get_draft_segments_by_topics" for s in steps)
     assert any(s["tool"] == "retrieve_similar_topic_by_draft" for s in steps)
+
+
+def test_suggest_tools_with_weighted_retrieval_params():
+    req = MinutesRequest(
+        open_issues=["遗留1"],
+        conclusions=["结论1"],
+        options={
+            "top_k": 6,
+            "retrieval_weights": {
+                "todo": {"type_weight": 0.8},
+                "open_issue": {"type_weight": 1.4, "dense_weight": 0.65, "sparse_weight": 0.35},
+                "conclusion": {"type_weight": 1.3, "dense_weight": 0.7, "sparse_weight": 0.3},
+            },
+        },
+    )
+    steps = suggest_tools(req)
+    issue_step = next(s for s in steps if s["tool"] == "retrieve_similar_todos_or_issues")
+    assert issue_step["params"]["todo_weight"] == 0.8
+    assert issue_step["params"]["issue_weight"] == 1.4
+    assert issue_step["params"]["dense_weight"] == 0.65
+    assert issue_step["params"]["sparse_weight"] == 0.35
+
+    conclusion_step = next(s for s in steps if s["tool"] == "retrieve_similar_conclusions")
+    assert conclusion_step["params"]["type_weight"] == 1.3
+    assert conclusion_step["params"]["dense_weight"] == 0.7
+    assert conclusion_step["params"]["sparse_weight"] == 0.3

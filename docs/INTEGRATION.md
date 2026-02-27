@@ -92,9 +92,9 @@ flowchart LR
 |------|------|----------------|
 | **IRetrieval** | 向量/混合检索 | `search(query_text, *, topic_filter, source_filter, level1_filter, author_filter, type_filter, top_k) -> List[dict]` |
 | **IMappingStore** | 口头→人名、会议类型→专业词 | `resolve_oral_to_formal(oral_name) -> Optional[str]`<br>`get_professional_terms(meeting_type, meeting_name) -> List[str]` |
-| **ISpeakerResolver** | 人脸/声纹/会场 → 发言人 | `resolve_speaker(face_result, voice_result, venue_name) -> Optional[str]`（可选） |
+| **ISpeakerResolver** | 人脸/声纹/会场 → 发言人 | `resolve_speaker(face_result, voice_result, venue_name) -> Optional[SpeakerResolution]`（可选） |
 
-返回的 `dict` 建议包含：`pk`, `score`, `page_content`, `source`, `level1`, `level2`, `author`, `time`, `version`, `topic`。
+返回的 `dict` 建议包含：`pk`, `score`, `page_content`, `source`, `level1`, `level2`, `author`, `time`, `version`, `topic`，以及可追溯字段 `source_id`, `source_position`, `confidence`。
 
 ### 2.2 使用本仓库自带的适配器
 
@@ -188,9 +188,33 @@ uvicorn api.main:app --host 0.0.0.0 --port 8000
 
 若已有 `MilvusHybridClient.search(query_text, knowledge_base_name, top_k, topic_filter=..., file_list=...)`：
 
-1. **filter 扩展**：`RetrievalAdapter` 会拼 `filter` 表达式（含 `source`、`topic`、`level1`、`author`、`type`）。若现有 client 的 `search` 支持 `filter=expr` 参数，直接传入即可；否则需在 client 侧增加对 `filter` 的支持，或由适配器只传 `topic_filter`/`file_list`（则部分过滤在应用层做）。
+1. **filter 扩展**：`RetrievalAdapter` 会拼 `filter` 表达式（含 `source`、`topic`、`level1`、`author`、`type`、`project`、`department`、`organization`）。若现有 client 的 `search` 支持 `filter=expr` 参数，直接传入即可；否则需在 client 侧增加对 `filter` 的支持，或由适配器只传 `topic_filter`/`file_list`（则部分过滤在应用层做）。
 2. **返回格式**：client 返回的 hit 建议为 `hit["entity"]` 存标量、`hit["distance"]` 存分数；适配器会转为 `page_content`、`source` 等统一 dict。
 3. **output_fields**：若需「口水稿→相似议题名」，检索结果中需包含 `topic` 字段，请在 client 的 `output_fields` 中加入 `topic`。
+4. **权重透传**：适配器会透传 `dense_weight`、`sparse_weight`、`type_weight`（以及其他 `*_weight` 参数）到底层 `search`。若底层不支持，请在 client 适配层忽略或实现加权逻辑。
+
+### 4.1 分类型检索封装（todo/open_issue/conclusion）
+
+`smart_minutes.tools.rag` 已提供分类型检索封装：
+
+- `retrieve_similar_todos(...)`
+- `retrieve_similar_open_issues(...)`
+- `retrieve_similar_conclusions(...)`
+- `retrieve_similar_todos_or_issues(...)`（双路检索融合排序）
+
+可通过请求 `options.retrieval_weights` 配置权重，路由会自动透传到工具层：
+
+```json
+{
+  "options": {
+    "retrieval_weights": {
+      "todo": { "type_weight": 0.8, "dense_weight": 0.6, "sparse_weight": 0.4 },
+      "open_issue": { "type_weight": 1.4, "dense_weight": 0.7, "sparse_weight": 0.3 },
+      "conclusion": { "type_weight": 1.2, "dense_weight": 0.65, "sparse_weight": 0.35 }
+    }
+  }
+}
+```
 
 ---
 
@@ -199,11 +223,18 @@ uvicorn api.main:app --host 0.0.0.0 --port 8000
 为保证检索与过滤正确，入库时需约定：
 
 - `source`：`minutes`（纪要）/ `attachment`（附件）/ `draft`（口水稿）
-- `type`：`summary` / `open_issue` / `conclusion` / `draft_segment` / `policy_chunk` 等
+- `type`：`summary` / `open_issue` / `conclusion` / `todo` / `draft_segment` / `policy_chunk` 等
 - `level1`：会议类型或会议名称（同系列过滤）
 - `topic`：议题名
 - `author`：发言人正式名
 - `time`：ISO 时间戳（同系列最新排序）
+
+对 `source=minutes` 建议启用分索引校验规则（已在 `pipelines/ingest.py` 支持）：
+
+- `todo`：必须有 `owner`；
+- `open_issue`：建议带 `next_step` / `issue_reason`；
+- `conclusion`：建议为决策句；
+- 支持别名归一化：`decision -> conclusion`、`action_item/task -> todo`、`issue -> open_issue`。
 
 详见项目计划文档「五、数据模型与存储」。
 

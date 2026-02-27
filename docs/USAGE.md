@@ -67,6 +67,9 @@ print(resp.references)     # 检索到的参考片段
 |------|------|------|------|
 | meeting_type | string | 否 | 会议类型 |
 | meeting_name | string | 否 | 会议名称 |
+| project | string | 否 | 项目标识（同系列加权过滤） |
+| department | string | 否 | 部门标识（同系列加权过滤） |
+| organization | string | 否 | 组织标识（同系列加权过滤） |
 | venue_name | string | 否 | 会场名称 |
 | meeting_id | string | 否 | 会议 ID（已持久化时可传） |
 | topics | string[] | 否 | 议题列表 |
@@ -78,6 +81,19 @@ print(resp.references)     # 检索到的参考片段
 | open_issues | string[] | 否 | 待办/遗留片段（用于查相似历史） |
 | conclusions | string[] | 否 | 议题结论片段（用于查相似历史） |
 | options | object | 否 | 扩展项，如 `{ "top_k": 5 }` |
+
+`options` 还支持分类型检索权重（用于 `todo/open_issue/conclusion`）：
+
+```json
+{
+  "top_k": 5,
+  "retrieval_weights": {
+    "todo": { "type_weight": 0.8, "dense_weight": 0.6, "sparse_weight": 0.4 },
+    "open_issue": { "type_weight": 1.4, "dense_weight": 0.7, "sparse_weight": 0.3 },
+    "conclusion": { "type_weight": 1.2, "dense_weight": 0.65, "sparse_weight": 0.35 }
+  }
+}
+```
 
 **realtime_speaker**：
 
@@ -94,7 +110,9 @@ print(resp.references)     # 检索到的参考片段
 | minutes_content | string | 生成的纪要正文（仅检索时为空） |
 | references | array | 参考片段列表，每项含 pk、score、page_content、source、topic、author、time 等 |
 | resolved_speakers | string[] | 本场解析出的发言人正式名 |
+| speaker_resolutions | array | 发言人融合结果（resolved_name、confidence、candidates、status） |
 | mapped_terms | string[] | 本场用到的专业词（或口头→人名解析结果） |
+| structured_output | object | 结构化纪要输出（meeting_info、topics、materials、traceability） |
 | errors | array | 错误列表，每项含 code、message |
 | warnings | string[] | 告警信息（如某路检索为空） |
 | partial | boolean | 是否部分成功（有未完成项时为 true） |
@@ -172,7 +190,7 @@ print(resp.references)     # 检索到的参考片段
 | 议题名称 | 查同/似议题历史（总结、遗留）、在附件中搜关键信息、按议题切口水稿 |
 | 人名/口头称呼 | 口头→正式名映射、查该人相关历史纪要 |
 | 口水稿全文 + 议题 | 按议题分割口水稿；用口水稿查相似历史议题名 |
-| 待办/结论片段 | 查类似历史待办、结论 |
+| 待办/遗留/结论片段 | 按 `todo/open_issue/conclusion` 分类型召回，支持权重调参 |
 | 人脸/声纹/会场 | 融合为当前发言人正式名 |
 
 ---
