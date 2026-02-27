@@ -24,6 +24,75 @@ data/              # 数据模型
 services/          # 共享能力（embedding、llm）
 ```
 
+## 执行流程图
+
+```mermaid
+flowchart TD
+  A[外部请求 MinutesRequest] --> B[SmartMinutesService / API 门面]
+  B --> C[Router 生成工具建议]
+  C --> D[MinutesAgent 执行工具]
+
+  D --> E1[Group1 顺序: 映射/专业词]
+  D --> E2[Group2 并行: RAG/附件检索]
+  D --> E3[Group3 顺序: 口水稿分割/发言人融合]
+
+  E1 --> F[汇总 references/mapped_terms/speakers]
+  E2 --> F
+  E3 --> F
+
+  F --> G[组装上下文 context]
+  G --> H[按预算裁剪 <= context_token_budget]
+  H --> I[调用 LLM 生成纪要]
+
+  I --> J{是否生成成功}
+  J -- 是 --> K[返回 MinutesResponse<br/>minutes_content + references]
+  J -- 否 --> L[降级返回占位内容 + errors/warnings]
+```
+
+## 组件架构图
+
+```mermaid
+flowchart LR
+  subgraph External[调用方 / 外部系统]
+    X1[会议应用]
+    X2[OA/审批]
+    X3[录制转写服务]
+  end
+
+  subgraph SmartMinutes[smart_minutes 模块]
+    A[api.py 门面 SmartMinutesService]
+    B[agents/router.py]
+    C[agents/minutes_agent.py]
+    D[tools/*]
+    E[contracts.py 抽象接口]
+    A --> B
+    A --> C
+    B --> C
+    C --> D
+    C -.依赖抽象.-> E
+  end
+
+  subgraph Infra[可替换基础设施]
+    R[RetrievalAdapter<br/>Milvus/Hybrid Client]
+    M[MappingStoreAdapter<br/>MySQL/配置映射]
+    S[SpeakerResolverAdapter<br/>人脸/声纹/会场]
+    LLM[services/llm.py]
+    EMB[services/embedding.py]
+    ING[pipelines/ingest.py]
+  end
+
+  X1 --> A
+  X2 --> A
+  X3 --> A
+
+  E --> R
+  E --> M
+  E --> S
+  C --> LLM
+  D --> EMB
+  ING --> EMB
+```
+
 ## 开发
 
 ```bash

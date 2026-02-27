@@ -1,6 +1,7 @@
 """纪要生成 Agent：执行工具序列、组装上下文、在 token 预算内调用 LLM。"""
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional
 
 from smart_minutes.schemas import ErrorItem, MinutesRequest, MinutesResponse, ReferenceItem
@@ -40,35 +41,68 @@ class MinutesAgent:
         warnings: List[str] = []
         errors: List[ErrorItem] = []
 
-        for step in tool_suggestions:
+        # 分组：先映射；再并行 RAG/附件；最后口水稿与发言人
+        group1 = ["mapping", "professional_terms"]
+        group2 = [
+            "retrieve_latest_minutes_by_series", "retrieve_by_topic", "retrieve_by_person",
+            "retrieve_similar_todos_or_issues", "retrieve_similar_conclusions",
+            "retrieve_similar_topic_by_draft", "get_attachments_by_meeting", "search_attachments_by_topic",
+        ]
+        group3 = ["get_draft_segments_by_topics", "resolve_speaker"]
+        ordered_steps: List[dict] = []
+        g1_steps = [s for s in tool_suggestions if (s.get("tool") or "") in group1]
+        g2_steps = [s for s in tool_suggestions if (s.get("tool") or "") in group2]
+        g3_steps = [s for s in tool_suggestions if (s.get("tool") or "") in group3]
+        other_steps = [s for s in tool_suggestions if s not in g1_steps and s not in g2_steps and s not in g3_steps]
+        ordered_steps = g1_steps + g2_steps + g3_steps + other_steps
+
+        def run_step(step: dict) -> tuple:
             tool_name = step.get("tool") or ""
             params = step.get("params") or {}
             try:
                 out = self._run_one_tool(tool_name, params, request)
-                if isinstance(out, list):
-                    for it in out:
-                        if isinstance(it, dict):
-                            if "page_content" in it or it.get("topic"):
-                                refs.append(ReferenceItem(
-                                    pk=it.get("pk"),
-                                    score=it.get("score", 0.0),
-                                    page_content=it.get("page_content", ""),
-                                    source=it.get("source", ""),
-                                    level1=it.get("level1", ""),
-                                    level2=it.get("level2", ""),
-                                    author=it.get("author", ""),
-                                    time=it.get("time", ""),
-                                    version=it.get("version", ""),
-                                    topic=it.get("topic", ""),
-                                ))
-                        elif isinstance(it, str) and tool_name in ("mapping", "professional_terms"):
-                            mapped_terms.append(it)
-                elif isinstance(out, str) and tool_name == "resolve_speaker" and out:
-                    resolved_speakers.append(out)
-                elif isinstance(out, list) and tool_name in ("mapping", "professional_terms"):
-                    mapped_terms.extend(x for x in out if isinstance(x, str))
+                return (tool_name, out, None)
             except Exception as e:
-                warnings.append(f"{tool_name}: {e}")
+                return (tool_name, None, str(e))
+
+        # group2 并行执行
+        results: List[tuple] = []
+        for step in g1_steps:
+            results.append(run_step(step))
+        if g2_steps:
+            with ThreadPoolExecutor(max_workers=min(8, len(g2_steps))) as ex:
+                futs = {ex.submit(run_step, s): s for s in g2_steps}
+                for fut in as_completed(futs):
+                    results.append(fut.result())
+        for step in g3_steps + other_steps:
+            results.append(run_step(step))
+
+        for tool_name, out, err in results:
+            if err:
+                warnings.append(f"{tool_name}: {err}")
+                continue
+            if isinstance(out, list):
+                for it in out:
+                    if isinstance(it, dict):
+                        if "page_content" in it or it.get("topic"):
+                            refs.append(ReferenceItem(
+                                pk=it.get("pk"),
+                                score=it.get("score", 0.0),  
+                                page_content=it.get("page_content", ""),
+                                source=it.get("source", ""),
+                                level1=it.get("level1", ""),
+                                level2=it.get("level2", ""),
+                                author=it.get("author", ""),
+                                time=it.get("time", ""),
+                                version=it.get("version", ""),
+                                topic=it.get("topic", ""),
+                            ))
+                    elif isinstance(it, str) and tool_name in ("mapping", "professional_terms"):
+                        mapped_terms.append(it)
+            elif isinstance(out, str) and tool_name == "resolve_speaker" and out:
+                resolved_speakers.append(out)
+            elif isinstance(out, list) and tool_name in ("mapping", "professional_terms"):
+                mapped_terms.extend(x for x in out if isinstance(x, str))
 
         if retrieve_only:
             return MinutesResponse(
@@ -158,19 +192,32 @@ class MinutesAgent:
         return parts
 
     def _truncate_to_budget(self, parts: List[str], budget: int) -> str:
-        """按 token 预算截断（中文约 4 字/token 粗算）。"""
-        approx_tokens = budget * 4
+        """按 token 预算截断；优先保留靠前片段（历史模板 > 同类议题 > 专业词/发言人 > 口水稿）。"""
+        chars_per = getattr(self._config, "chars_per_token", 4)
+        approx_chars = budget * chars_per
         out = []
         for p in parts:
-            if len("".join(out)) + len(p) <= approx_tokens:
+            current_len = sum(len(x) for x in out)
+            if current_len + len(p) <= approx_chars:
                 out.append(p)
             else:
-                remain = approx_tokens - len("".join(out))
+                remain = approx_chars - current_len
                 if remain > 100:
-                    out.append(p[:remain] + "...")
+                    out.append(p[: int(remain)] + "...")
                 break
         return "\n\n".join(out)
 
     def _generate_minutes(self, request: MinutesRequest, context: str) -> str:
-        """占位：未接 LLM 时返回 stub；可接入 LangChain 等生成正文。"""
-        return f"[纪要占位] 会议: {request.meeting_name or request.meeting_type or '未命名'}\n议题: {', '.join(request.topics)}\n\n参考上下文已纳入，待接入 LLM 生成正文。"
+        """根据上下文调用 LLM 生成纪要正文；无配置时返回占位。"""
+        from services.llm import complete
+        meeting_label = request.meeting_name or request.meeting_type or "未命名"
+        topics_label = "、".join(request.topics) if request.topics else "（未提供）"
+        system = (
+            "你是一名会议纪要撰写助手。请根据用户提供的会议信息与参考上下文，生成结构清晰、用语规范的会议纪要。"
+            "纪要应包含会议名称、议题、讨论要点、结论与待办（如有）。参考上下文中的历史模板与同类议题风格仅供参考，不要照抄。"
+        )
+        user = f"## 本次会议\n会议: {meeting_label}\n议题: {topics_label}\n\n## 参考上下文\n{context}\n\n请基于以上内容生成会议纪要正文。"
+        out = complete(user, system=system)
+        if not out:
+            return f"[纪要占位] 会议: {meeting_label}\n议题: {topics_label}\n\n参考上下文已纳入，LLM 未配置或调用失败。"
+        return out

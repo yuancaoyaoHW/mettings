@@ -10,6 +10,7 @@ class SmartMinutesConfig:
     collection_name: str = ""  # Milvus 集合名
     default_top_k: int = 5
     context_token_budget: int = 8000  # 单次送入模型的 token 上限
+    chars_per_token: int = 4  # 中文粗算：每 token 约 4 字，用于无 tokenizer 时
     sparse_weight: float = 0.5
     dense_weight: float = 0.5
 
@@ -21,4 +22,5 @@ class SmartMinutesConfig:
             collection_name=collection_name or os.environ.get("MILVUS_COLLECTION_NAME", ""),
             default_top_k=int(os.environ.get("DEFAULT_TOP_K", "5")),
             context_token_budget=int(os.environ.get("CONTEXT_TOKEN_BUDGET", "8000")),
+            chars_per_token=int(os.environ.get("CHARS_PER_TOKEN", "4")),
         )
