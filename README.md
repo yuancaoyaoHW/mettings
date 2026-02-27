@@ -112,6 +112,43 @@ uvicorn api.main:app --reload   # 启动 API
 pytest -q                        # 运行测试
 ```
 
+## 接口一览
+
+服务启动后默认监听 `http://localhost:8000`，支持以下接口：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/health` | 健康检查，返回 `{"status": "ok"}` |
+| `POST` | `/api/smart-minutes/generate` | 生成纪要（一次性返回），`minutes_content` + `structured_output` + `references` |
+| `POST` | `/api/smart-minutes/generate-stream` | 流式生成纪要（SSE），先输出阶段事件再输出正文 token |
+| `POST` | `/api/smart-minutes/retrieve` | 仅检索，不调用 LLM；返回 `references`、`mapped_terms`、`resolved_speakers`、`speaker_resolutions` |
+
+所有 `POST` 接口的请求体均为 [`MinutesRequest`](smart_minutes/schemas.py)，响应体均为 [`MinutesResponse`](smart_minutes/schemas.py)。
+
+**`MinutesResponse` 关键字段一览：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `minutes_content` | string | 生成的纪要正文 |
+| `structured_output` | object | 结构化纪要（`meeting_info`、`topics[]`、`materials[]`、`traceability`） |
+| `references` | array | 检索到的参考片段（含 `pk`、`score`、`source`、`topic`、`source_id` 等） |
+| `resolved_speakers` | string[] | 融合后的发言人正式名 |
+| `speaker_resolutions` | array | 多模态融合详情（`resolved_name`、`confidence`、`candidates[]`、`status`） |
+| `mapped_terms` | string[] | 专业词与口头→正式名映射结果 |
+| `warnings` | string[] | 部分失败告警（如某路检索未命中） |
+| `errors` | array | 错误列表（`code`、`message`） |
+| `partial` | boolean | 是否部分成功 |
+
+**SSE 流式接口（`generate-stream`）阶段事件：**
+
+| `stage` 值 | 时机 | 包含字段 |
+|------------|------|----------|
+| `smart_minutes_start` | 请求收到后立即 | `meeting_name`、`topics` |
+| `prepare_done` | 工具执行完毕 | `tool_count`、`reference_count`、`token_budget`、`context_chars` |
+| `warnings` | 生成结束前（有告警时） | `warnings`、`partial` |
+
+---
+
 ## 最小请求示例（含 retrieval_weights）
 
 ```json
