@@ -14,6 +14,9 @@ from smart_minutes.adapters.retrieval import RetrievalAdapter
 from smart_minutes.adapters.speaker_resolver import SpeakerResolverAdapter
 from smart_minutes.schemas import MinutesRequest, MinutesResponse
 
+# 导入 schema 管理路由
+from api.schema_manager import router as schema_router
+
 
 def _create_service() -> SmartMinutesService:
     """用 stub 适配器构造服务；生产环境可替换为真实 Milvus/DB。"""
@@ -31,6 +34,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Smart Minutes API", lifespan=lifespan)
+
+# 挂载 schema 管理路由
+app.include_router(schema_router)
 
 
 def _event_chunk(event: Dict[str, Any]) -> str:
