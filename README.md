@@ -58,6 +58,8 @@ flowchart TD
   J -- 否 --> L[降级返回占位内容 + errors/warnings]
 ```
 
+
+
 ## 组件架构图
 
 ```mermaid
@@ -102,6 +104,8 @@ flowchart LR
   ING --> EMB
 ```
 
+
+
 ## 开发
 
 ```bash
@@ -116,6 +120,7 @@ pytest -q                        # 运行测试
 
 服务启动后默认监听 `http://localhost:8000`，支持以下接口：
 
+
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | `GET` | `/health` | 健康检查，返回 `{"status": "ok"}` |
@@ -123,9 +128,11 @@ pytest -q                        # 运行测试
 | `POST` | `/api/smart-minutes/generate-stream` | 流式生成纪要（SSE），先输出阶段事件再输出正文 token |
 | `POST` | `/api/smart-minutes/retrieve` | 仅检索，不调用 LLM；返回 `references`、`mapped_terms`、`resolved_speakers`、`speaker_resolutions` |
 
+
 所有 `POST` 接口的请求体均为 [`MinutesRequest`](smart_minutes/schemas.py)，响应体均为 [`MinutesResponse`](smart_minutes/schemas.py)。
 
 **`MinutesResponse` 关键字段一览：**
+
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -139,13 +146,16 @@ pytest -q                        # 运行测试
 | `errors` | array | 错误列表（`code`、`message`） |
 | `partial` | boolean | 是否部分成功 |
 
+
 **SSE 流式接口（`generate-stream`）阶段事件：**
+
 
 | `stage` 值 | 时机 | 包含字段 |
 |------------|------|----------|
 | `smart_minutes_start` | 请求收到后立即 | `meeting_name`、`topics` |
 | `prepare_done` | 工具执行完毕 | `tool_count`、`reference_count`、`token_budget`、`context_chars` |
 | `warnings` | 生成结束前（有告警时） | `warnings`、`partial` |
+
 
 ---
 
@@ -174,10 +184,24 @@ pytest -q                        # 运行测试
 
 该请求可用于 `POST /api/smart-minutes/generate` 或 `POST /api/smart-minutes/retrieve`。
 
+## meeting_type 模板配置（JSON/YAML 二选一）
+
+在 `.env` 中，`SMART_MINUTES_TEMPLATES_PATH` 指向模板文件即可；JSON 与 YAML 任选其一：
+
+```env
+# JSON 示例（二选一）
+SMART_MINUTES_TEMPLATES_PATH=config/templates.json
+
+# YAML 示例（二选一）
+# SMART_MINUTES_TEMPLATES_PATH=config/templates.yaml
+```
+
+请求中传 `meeting_type` 后，会自动套用模板里的默认 `top_k` 与检索权重；参数优先级为：**请求 options > meeting_type 模板 > 全局默认值**。
+
 ## Linux 子模块部署
- 
+
  如果你将本仓库作为 Git Submodule 或子目录放置在主工程的 `src/service/smart_minutes` 下，并希望独立启动 HTTP 服务：
- 
+
  ```bash
  # 假设在主工程根目录
  export PYTHONPATH=$(pwd)
@@ -187,7 +211,7 @@ pytest -q                        # 运行测试
  ```
  
  若需通过 Nginx 反向代理流式接口，请务必关闭缓冲：
- 
+
  ```nginx
  location /api/smart-minutes/generate-stream {
      proxy_pass http://127.0.0.1:18080;
@@ -196,6 +220,6 @@ pytest -q                        # 运行测试
  }
  ```
  
- ## License
+## License
 
 Private / 内部使用

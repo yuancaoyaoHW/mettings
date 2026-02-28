@@ -1,0 +1,26 @@
+周会:
+  top_k: 3
+  context_token_budget_multiplier: 0.8
+  open_issue_weights:
+    type_weight: 1.5
+    dense_weight: 0.6
+    sparse_weight: 0.4
+  todo_weights:
+    type_weight: 0.9
+  conclusion_weights:
+    type_weight: 1.2
+  output_preferences:
+    action_item_format: owner+deadline
+
+需求评审:
+  top_k: 8
+  context_token_budget_multiplier: 1.2
+  open_issue_weights:
+    type_weight: 1.3
+  todo_weights:
+    type_weight: 1.1
+  conclusion_weights:
+    type_weight: 1.0
+    dense_weight: 0.7
+  output_preferences:
+    legacy_issue_format: bullet

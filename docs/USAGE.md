@@ -95,6 +95,10 @@ print(resp.references)     # 检索到的参考片段
 }
 ```
 
+当配置了会议类型模板（见环境变量 `SMART_MINUTES_TEMPLATES_PATH` / `SMART_MINUTES_TEMPLATES_JSON`）后，
+若请求里提供 `meeting_type`，系统会按 `meeting_type` 自动套用默认 `top_k` 和分类型权重。
+参数优先级为：**请求 options > meeting_type 模板 > 全局默认值**。
+
 **realtime_speaker**：
 
 | 字段 | 类型 | 说明 |
@@ -176,6 +180,8 @@ print(resp.references)     # 检索到的参考片段
 | LLM_MODEL_NAME | 模型名 | |
 | CONTEXT_TOKEN_BUDGET | 单次上下文 token 上限 | 8000 |
 | DEFAULT_TOP_K | 默认召回条数 | 5 |
+| SMART_MINUTES_TEMPLATES_PATH | 会议类型模板文件路径（JSON/YAML） | `config/templates.json` |
+| SMART_MINUTES_TEMPLATES_JSON | 会议类型模板 JSON 字符串（可选） | `{"周会":{"top_k":3}}` |
 | MAPPING_DB_URI | 映射表 DB（可选） | |
 
 更多见项目根目录 `.env.example`。

@@ -137,6 +137,10 @@ service = SmartMinutesService(MyRetrieval(), my_mapping, my_speaker)
 
 - 集合名、top_k、上下文预算等可通过 `SmartMinutesConfig` 传入，或由环境变量提供（见 `.env.example`）。
 - `SmartMinutesService(..., config=SmartMinutesConfig(collection_name="xx", context_token_budget=8000))`
+- 支持按 `meeting_type` 自动套用策略模板（`top_k`、`todo/open_issue/conclusion` 权重等）：
+  - `SMART_MINUTES_TEMPLATES_PATH`：模板文件路径（JSON/YAML）
+  - `SMART_MINUTES_TEMPLATES_JSON`：模板 JSON 字符串（可选，未设置文件路径时生效）
+  - 参数优先级：**请求 options > meeting_type 模板 > 全局默认值**
 
 ---
 
@@ -202,7 +206,8 @@ uvicorn api.main:app --host 0.0.0.0 --port 8000
 - `retrieve_similar_conclusions(...)`
 - `retrieve_similar_todos_or_issues(...)`（双路检索融合排序）
 
-可通过请求 `options.retrieval_weights` 配置权重，路由会自动透传到工具层：
+可通过请求 `options.retrieval_weights` 配置权重，路由会自动透传到工具层。
+若配置了 meeting_type 模板且请求中带 `meeting_type`，则请求未显式提供的参数会从模板补齐：
 
 ```json
 {
