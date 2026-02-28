@@ -51,6 +51,7 @@ class ActionItem(BaseModel):
     deadline: Optional[str] = None
     status: Optional[str] = None
     source_ref_ids: List[str] = Field(default_factory=list)
+    source_minutes_id: Optional[str] = None  # 历史待办延续：来源纪要 ID
 
 
 class TopicSection(BaseModel):
@@ -75,6 +76,8 @@ class MaterialCitation(BaseModel):
     quote: str = ""
     topic_name: Optional[str] = None
     term_mappings: Dict[str, str] = Field(default_factory=dict)
+    confidence: Optional[float] = None  # 引用置信度
+    version: Optional[str] = None  # 附件/文档版本，用于追溯
 
 
 class TraceabilityInfo(BaseModel):
@@ -83,6 +86,7 @@ class TraceabilityInfo(BaseModel):
     history_minutes_ids: List[str] = Field(default_factory=list)
     attachment_positions: List[str] = Field(default_factory=list)
     speaker_resolution: List[SpeakerResolution] = Field(default_factory=list)
+    per_fact_sources: Dict[str, List[str]] = Field(default_factory=dict)  # 结论/关键事实 -> 来源 ID 列表
 
 
 class StructuredMinutesOutput(BaseModel):
@@ -99,12 +103,18 @@ class MinutesRequest(BaseModel):
 
     meeting_type: Optional[str] = None
     meeting_name: Optional[str] = None
+    meeting_time: Optional[str] = None  # 会议时间，与 MeetingInfo 对齐
+    location: Optional[str] = None  # 会议地点
     project: Optional[str] = None
     department: Optional[str] = None
     organization: Optional[str] = None
     venue_name: Optional[str] = None
     meeting_id: Optional[str] = None
     topics: List[str] = Field(default_factory=list)  # 议题列表
+    attachment_ids: List[str] = Field(default_factory=list)  # 显式限定附件范围（可选）
+    attendees: List[str] = Field(default_factory=list)  # 参会人，用于填充 MeetingInfo
+    host: Optional[str] = None  # 主持人
+    recorder: Optional[str] = None  # 记录人
     person_names: List[str] = Field(default_factory=list)
     oral_names: List[str] = Field(default_factory=list)  # 口头称呼
     draft_text: Optional[str] = None  # 本次会议口水稿全文
@@ -122,6 +132,7 @@ class ReferenceItem(BaseModel):
     score: float = 0.0
     page_content: str = ""
     source: str = ""  # minutes / attachment / draft
+    type: str = ""  # summary / open_issue / conclusion / todo 等，与 ingest 行一致
     level1: str = ""
     level2: str = ""
     author: str = ""
@@ -131,6 +142,8 @@ class ReferenceItem(BaseModel):
     source_id: str = ""
     source_position: str = ""
     confidence: Optional[float] = None
+    owner: str = ""  # 待办负责人
+    deadline: str = ""  # 截止时间
 
 
 class ErrorItem(BaseModel):

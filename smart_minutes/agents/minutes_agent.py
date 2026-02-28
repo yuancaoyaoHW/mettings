@@ -1,10 +1,13 @@
 """纪要生成 Agent：执行工具序列、组装上下文、在 token 预算内调用 LLM。"""
 from __future__ import annotations
 
+import json
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, Iterator, List, Optional
 
 from smart_minutes.schemas import (
+    ActionItem,
     ErrorItem,
     MaterialCitation,
     MeetingInfo,
@@ -69,6 +72,9 @@ class MinutesAgent:
         except Exception as e:
             errors.append(ErrorItem(code="GENERATE_ERROR", message=str(e)))
             minutes_content = ""
+        parsed_topics = self._parse_structured_topics_from_content(minutes_content, request.topics)
+        if parsed_topics:
+            structured_output = self._merge_parsed_topics(structured_output, parsed_topics)
         return MinutesResponse(
             minutes_content=minutes_content,
             references=refs,
@@ -173,9 +179,10 @@ class MinutesAgent:
                         if "page_content" in it or it.get("topic"):
                             refs.append(ReferenceItem(
                                 pk=it.get("pk"),
-                                score=it.get("score", 0.0),  
+                                score=it.get("score", 0.0),
                                 page_content=it.get("page_content", ""),
                                 source=it.get("source", ""),
+                                type=it.get("type", ""),
                                 level1=it.get("level1", ""),
                                 level2=it.get("level2", ""),
                                 author=it.get("author", ""),
@@ -185,6 +192,8 @@ class MinutesAgent:
                                 source_id=it.get("source_id", ""),
                                 source_position=it.get("source_position", ""),
                                 confidence=it.get("confidence"),
+                                owner=it.get("owner", ""),
+                                deadline=it.get("deadline", ""),
                             ))
                     elif isinstance(it, str) and tool_name in ("mapping", "professional_terms"):
                         mapped_terms.append(it)
@@ -320,8 +329,79 @@ class MinutesAgent:
             "必须严格区分“历史背景/上次遗留”和“本次新结论”，不要把历史结论当作本次结论。"
             "关键事实或结论尽量附上来源标识。"
         )
-        user = f"## 本次会议\n会议: {meeting_label}\n议题: {topics_label}\n\n## 参考上下文\n{context}\n\n请基于以上内容生成会议纪要正文。"
+        user = (
+            f"## 本次会议\n会议: {meeting_label}\n议题: {topics_label}\n\n## 参考上下文\n{context}\n\n"
+            "请基于以上内容生成会议纪要正文。"
+            "请在正文末尾附一个 JSON 块（用 ```json 包裹），键为 topics，值为数组；"
+            "每项含 topic_name、summary、key_points（字符串数组）、conclusions、open_issues、"
+            "action_items（数组，每项含 content、owner、deadline）。若无法生成可省略该块。"
+        )
         return system, user
+
+    def _parse_structured_topics_from_content(
+        self, content: str, topic_names: List[str]
+    ) -> Optional[List[TopicSection]]:
+        """从纪要正文中解析 ```json ... ``` 块中的 topics，转为 TopicSection 列表。"""
+        if not content:
+            return None
+        match = re.search(r"```(?:json|JSON)\s*\n(.*?)\n```", content, re.DOTALL)
+        if not match:
+            return None
+        try:
+            data = json.loads(match.group(1).strip())
+        except (json.JSONDecodeError, TypeError):
+            return None
+        raw_topics = data.get("topics")
+        if not isinstance(raw_topics, list):
+            return None
+        out: List[TopicSection] = []
+        for t in raw_topics:
+            if not isinstance(t, dict):
+                continue
+            action_items: List[ActionItem] = []
+            for ai in t.get("action_items") or []:
+                if isinstance(ai, dict):
+                    action_items.append(
+                        ActionItem(
+                            content=ai.get("content", "") or "",
+                            owner=ai.get("owner"),
+                            deadline=ai.get("deadline"),
+                        )
+                    )
+            out.append(
+                TopicSection(
+                    topic_name=t.get("topic_name", "") or "",
+                    summary=t.get("summary", "") or "",
+                    key_points=[x for x in (t.get("key_points") or []) if isinstance(x, str)],
+                    conclusions=[x for x in (t.get("conclusions") or []) if isinstance(x, str)],
+                    open_issues=[x for x in (t.get("open_issues") or []) if isinstance(x, str)],
+                    action_items=action_items,
+                )
+            )
+        return out if out else None
+
+    def _merge_parsed_topics(
+        self,
+        structured_output: StructuredMinutesOutput,
+        parsed: List[TopicSection],
+    ) -> StructuredMinutesOutput:
+        """按 topic_name 将解析出的议题内容合并进已有 topics，返回新 StructuredMinutesOutput。"""
+        existing = structured_output.topics or []
+        by_name: Dict[str, TopicSection] = {s.topic_name: s for s in existing if s.topic_name}
+        for p in parsed:
+            if p.topic_name:
+                by_name[p.topic_name] = p
+        existing_names = [s.topic_name for s in existing]
+        merged = [by_name.get(name) or TopicSection(topic_name=name) for name in existing_names]
+        for p in parsed:
+            if p.topic_name and p.topic_name not in existing_names:
+                merged.append(p)
+        return StructuredMinutesOutput(
+            meeting_info=structured_output.meeting_info,
+            topics=merged,
+            materials=structured_output.materials or [],
+            traceability=structured_output.traceability,
+        )
 
     def _build_structured_output(
         self,
@@ -333,7 +413,11 @@ class MinutesAgent:
         meeting_info = MeetingInfo(
             meeting_type=request.meeting_type,
             meeting_name=request.meeting_name,
-            location=request.venue_name,
+            meeting_time=request.meeting_time,
+            location=request.location or request.venue_name,
+            attendees=request.attendees or [],
+            host=request.host,
+            recorder=request.recorder,
         )
         topics = [TopicSection(topic_name=t) for t in request.topics]
         materials: List[MaterialCitation] = []
@@ -353,6 +437,8 @@ class MinutesAgent:
                     source_position=source_position,
                     quote=ref.page_content[:200],
                     topic_name=ref.topic or None,
+                    confidence=ref.confidence,
+                    version=ref.version or None,
                 )
             )
 

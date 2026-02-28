@@ -6,12 +6,13 @@ from smart_minutes.contracts import IRetrieval
 
 
 def _to_ref(hit: dict) -> dict:
-    """单条 hit 转为统一 ref 字典。"""
+    """单条 hit 转为统一 ref 字典（与 ingest 行、ReferenceItem 对齐）。"""
     return {
         "pk": hit.get("pk"),
         "score": hit.get("score", 0.0),
         "page_content": hit.get("page_content", hit.get("text", "")),
         "source": hit.get("source", ""),
+        "type": hit.get("type", ""),
         "level1": hit.get("level1", ""),
         "level2": hit.get("level2", ""),
         "author": hit.get("author", ""),
@@ -21,6 +22,8 @@ def _to_ref(hit: dict) -> dict:
         "source_id": hit.get("source_id", ""),
         "source_position": hit.get("source_position", ""),
         "confidence": hit.get("confidence"),
+        "owner": hit.get("owner", ""),
+        "deadline": hit.get("deadline", ""),
     }
 
 

@@ -56,6 +56,7 @@ def _hits_to_dicts(results: Any, output_fields: Optional[List[str]] = None) -> L
             "score": dist,
             "page_content": text,
             "source": entity.get("source", ""),
+            "type": entity.get("type", ""),
             "level1": entity.get("level1", ""),
             "level2": entity.get("level2", ""),
             "author": entity.get("author", ""),
@@ -65,6 +66,8 @@ def _hits_to_dicts(results: Any, output_fields: Optional[List[str]] = None) -> L
             "source_id": entity.get("source_id", ""),
             "source_position": entity.get("source_position", ""),
             "confidence": entity.get("confidence"),
+            "owner": entity.get("owner", ""),
+            "deadline": entity.get("deadline", ""),
         })
     return out
 

@@ -16,10 +16,13 @@ class IRetrieval(Protocol):
         level1_filter: Optional[str] = None,
         author_filter: Optional[str] = None,
         type_filter: Optional[str] = None,
+        project_filter: Optional[str] = None,
+        department_filter: Optional[str] = None,
+        organization_filter: Optional[str] = None,
         top_k: int = 5,
         **kwargs: Any,
     ) -> List[dict]:
-        """混合检索（可带过滤），返回含 pk、score、page_content、source 等字段的 dict 列表。"""
+        """混合检索（可带过滤），返回含 pk、score、page_content、source、type、owner、deadline 等字段的 dict 列表。"""
         ...
 
 
