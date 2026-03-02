@@ -39,6 +39,27 @@ def _normalize_meeting_key(raw: str) -> str:
     return text
 
 
+def _to_people_set(value: Any) -> set[str]:
+    """将不同格式的参会人字段归一为集合。"""
+    if not value:
+        return set()
+    if isinstance(value, str):
+        parts = re.split(r"[，,;；/|\s]+", value.strip())
+        return {p.strip() for p in parts if p and p.strip()}
+    if isinstance(value, list):
+        return {str(x).strip() for x in value if str(x).strip()}
+    return set()
+
+
+def _hit_attendees(hit: dict) -> set[str]:
+    """从检索命中中提取参会人集合（兼容多种字段名）。"""
+    keys = ("attendees", "participant_names", "participants", "attendee_names")
+    people: set[str] = set()
+    for k in keys:
+        people.update(_to_people_set(hit.get(k)))
+    return people
+
+
 def _weighted_kwargs(
     *,
     dense_weight: Optional[float] = None,
@@ -91,6 +112,7 @@ def retrieve_latest_minutes_by_series(
     project: str = "",
     department: str = "",
     organization: str = "",
+    attendees: Optional[List[str]] = None,
 ) -> List[dict]:
     """同系列最新纪要：source=minutes、level1=会议类型/名，按 time 降序取 top_k。"""
     level1 = _normalize_meeting_key(meeting_type or meeting_name or "")
@@ -116,10 +138,23 @@ def retrieve_latest_minutes_by_series(
             department_filter=department or None,
             organization_filter=organization or None,
         )
-    # 按 time 降序取 top_k
-    with_time = [(h, h.get("time", "")) for h in hits]
-    with_time.sort(key=lambda x: x[1], reverse=True)
-    return [_to_ref(h) for h, _ in with_time[:top_k]]
+    # 弱约束：参会人重叠（仅作为排序辅助，不改变召回范围）
+    query_attendees = _to_people_set(attendees or [])
+
+    def _sort_key(h: dict) -> tuple:
+        hit_attendees = _hit_attendees(h)
+        overlap = 0.0
+        if query_attendees and hit_attendees:
+            overlap = len(query_attendees & hit_attendees) / max(len(query_attendees), 1)
+        # 时间优先，其次参会人重叠，再次检索分数
+        return (
+            h.get("time", ""),
+            overlap,
+            float(h.get("score", 0.0)),
+        )
+
+    hits.sort(key=_sort_key, reverse=True)
+    return [_to_ref(h) for h in hits[:top_k]]
 
 
 def retrieve_by_topic(retrieval: IRetrieval, topic_name: str, top_k: int) -> List[dict]:

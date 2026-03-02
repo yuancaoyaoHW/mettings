@@ -156,20 +156,50 @@ uvicorn api.main:app --host 0.0.0.0 --port 8000
 
 ### 3.2 生产环境注入真实实现
 
-默认 `api/main.py` 使用 stub 适配器（无真实 Milvus）。生产需在应用启动时构造真实 `RetrievalAdapter`、`MappingStoreAdapter`、`SpeakerResolverAdapter`，再创建 `SmartMinutesService` 并挂到 `app.state.service`（可改 `lifespan` 或用依赖注入）。
+`api/main.py` 会先尝试按环境变量创建真实适配器（Milvus/MySQL）；若未提供配置则回退到 stub 适配器。生产环境也可在应用启动时显式注入真实实现：
+
+- 检索：`create_retrieval_adapter(...)`（或你自己的 `IRetrieval` 实现）
+- 映射：`create_mapping_store_from_env()`（优先读取 `MAPPING_DB_URI`，也支持 `MYSQL_*`）
+- 发言人：`SpeakerResolverAdapter`（或你自己的 `ISpeakerResolver`）
+
+示例（lifespan 初始化）：
+
+```python
+import os
+from smart_minutes import SmartMinutesService
+from smart_minutes.adapters.retrieval import create_retrieval_adapter
+from smart_minutes.adapters.mapping_store import MappingStoreAdapter
+from smart_minutes.adapters.speaker_resolver import SpeakerResolverAdapter
+from smart_minutes.adapters.stores.mapping_mysql import create_mapping_store_from_env
+
+collection_name = os.getenv("MILVUS_COLLECTION_NAME", "")
+retrieval = create_retrieval_adapter(
+    collection_name=collection_name,
+    milvus_uri=os.getenv("MILVUS_URI"),
+    token=os.getenv("MILVUS_TOKEN", ""),
+    db_name=os.getenv("MILVUS_DB_NAME", "default"),
+)
+mapping = create_mapping_store_from_env() or MappingStoreAdapter(initial_oral_map={})
+speaker = SpeakerResolverAdapter()
+service = SmartMinutesService(retrieval, mapping, speaker)
+```
 
 ### 3.3 接口与契约
 
-- **POST /api/smart-minutes/generate**：生成纪要，请求体为 `MinutesRequest` 的 JSON，响应为 `MinutesResponse`。
- - **POST /api/smart-minutes/generate-stream**：流式生成纪要，SSE 协议返回阶段事件与正文 token。
- - **POST /api/smart-minutes/retrieve**：仅检索，不生成正文；请求体同，响应中 `minutes_content` 为空，`references` 等有值。
+- **POST /api/v1/smart-minutes/generate**：生成纪要，请求体为 `MinutesRequest` 的 JSON，响应为 `MinutesResponse`。
+ - **POST /api/v1/smart-minutes/generate-stream**：流式生成纪要，SSE 协议返回阶段事件与正文 token。
+ - **POST /api/v1/smart-minutes/retrieve**：仅检索，不生成正文；请求体同，响应中 `minutes_content` 为空，`references` 等有值。
 - **GET /health**：健康检查。
+
+*注：原 `/api/smart-minutes/*` 路径继续保留作为兼容层，但推荐使用 `/api/v1/` 前缀。*
+
+`/api/schema/*` 为内部管理接口（Schema 注册/迁移/预览），不建议作为业务侧对外契约直接依赖。
 
 请求/响应字段见 [使用指南 - 请求与响应](USAGE.md#二请求与响应)。
 
 ### 3.4 流式接口与 SSE 协议
  
- 接口：`POST /api/smart-minutes/generate-stream`
+ 接口：`POST /api/v1/smart-minutes/generate-stream`
  
  响应为 `Content-Type: text/event-stream`，包含两类消息：
  
@@ -245,7 +275,120 @@ uvicorn api.main:app --host 0.0.0.0 --port 8000
 
 ---
 
-## 六、错误与降级
+## 六、MilvusClient 适配器
+
+`smart_minutes/adapters/milvus_client.py` 提供了完整的 Milvus 客户端封装。
+
+### 6.1 功能特性
+
+- **连接池管理**：自动管理 Milvus 连接，支持并发访问
+- **Schema 管理**：支持动态字段，自动创建集合和索引
+- **数据操作**：插入、查询、删除、批量操作
+- **向量搜索**：支持 ANN 搜索、混合搜索、标量过滤
+- **迁移工具**：支持迁移到支持动态字段的新 Collection
+
+### 6.2 使用示例
+
+```python
+from smart_minutes.adapters.milvus_client import (
+    MilvusClient, MilvusConfig, CollectionSchemaConfig, IndexConfig
+)
+
+# 创建客户端
+config = MilvusConfig(
+    uri="http://localhost:19530",
+    token="your-token",
+    db_name="default"
+)
+client = MilvusClient(config)
+
+# 创建集合（启用动态字段）
+schema_config = CollectionSchemaConfig(
+    collection_name="minutes",
+    vector_dim=768,
+    enable_dynamic_field=True,
+    scalar_fields=[
+        {"name": "source", "dtype": "VARCHAR", "max_length": 64},
+        {"name": "type", "dtype": "VARCHAR", "max_length": 64},
+        {"name": "topic", "dtype": "VARCHAR", "max_length": 256},
+    ]
+)
+index_config = IndexConfig(index_type="IVF_FLAT", params={"nlist": 128})
+
+client.create_collection(
+    schema_config=schema_config,
+    index_config=index_config,
+    load_immediately=True
+)
+
+# 插入数据
+rows = [
+    {
+        "text": "会议纪要内容",
+        "vector": [0.1, 0.2, ...],  # 768维向量
+        "source": "minutes",
+        "type": "summary",
+        "topic": "需求评审",
+        # 动态字段
+        "importance": 5,
+        "keywords": ["需求", "评审"]
+    }
+]
+client.insert("minutes", rows)
+
+# 向量搜索
+results = client.search(
+    collection_name="minutes",
+    vectors=[[query_vector]],
+    search_params=SearchParams(top_k=5, filter_expr='type == "summary"')
+)
+```
+
+### 6.3 动态字段支持
+
+启用 `enable_dynamic_field=True` 后，可以在插入数据时添加任意额外字段：
+
+```python
+# 基础字段（Schema 中定义的）
+row = {
+    "text": "...",
+    "vector": [...],
+    "source": "minutes",
+    "type": "conclusion"
+}
+
+# 动态扩展字段（自动生成）
+row["importance"] = 5
+row["sentiment"] = "positive"
+row["custom_tag"] = "urgent"
+```
+
+### 6.4 检索适配器
+
+`RetrievalAdapter` 包装 `MilvusClient`，实现 `IRetrieval` 接口：
+
+```python
+from smart_minutes.adapters.retrieval import create_retrieval_adapter
+
+retrieval = create_retrieval_adapter(
+    collection_name="minutes",
+    milvus_uri="http://localhost:19530",
+    token="your-token",
+    db_name="default"
+)
+
+# 使用检索接口
+results = retrieval.search(
+    query_text="需求评审",
+    topic_filter="需求评审",
+    source_filter="minutes",
+    top_k=5
+)
+```
+
+---
+
+## 八、错误与降级
 
 - 响应中 `partial=true` 表示部分成功（如某路检索失败、映射未命中）。
 - 未完成项会写入 `warnings`；严重错误可写入 `errors`。
@@ -253,7 +396,7 @@ uvicorn api.main:app --host 0.0.0.0 --port 8000
 
 ---
 
-## 七、版本与兼容
+## 九、版本与兼容
 
 - 对外契约以 `smart_minutes.schemas` 中的 `MinutesRequest`、`MinutesResponse` 为准；新增可选字段保持向后兼容。
 - 内部 Agent、工具、路由可能随版本调整，调用方仅依赖门面与契约即可。

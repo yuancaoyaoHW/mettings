@@ -1,5 +1,6 @@
 """Smart minutes: standalone feature package. Public API only."""
 from smart_minutes.api import SmartMinutesService
+from smart_minutes.factory import create_service
 from smart_minutes.schemas import (
     ErrorItem,
     MinutesRequest,
@@ -10,6 +11,7 @@ from smart_minutes.schemas import (
 
 __all__ = [
     "SmartMinutesService",
+    "create_service",
     "MinutesRequest",
     "MinutesResponse",
     "ReferenceItem",

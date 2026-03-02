@@ -57,6 +57,33 @@ print(resp.mapped_terms)   # 口头→人名解析结果
 print(resp.references)     # 检索到的参考片段
 ```
 
+### 1.3 生产接入（真实 Milvus + MySQL 映射）
+
+```python
+import os
+from smart_minutes import SmartMinutesService
+from smart_minutes.adapters.retrieval import create_retrieval_adapter
+from smart_minutes.adapters.mapping_store import MappingStoreAdapter
+from smart_minutes.adapters.speaker_resolver import SpeakerResolverAdapter
+from smart_minutes.adapters.stores.mapping_mysql import create_mapping_store_from_env
+
+retrieval = create_retrieval_adapter(
+    collection_name=os.getenv("MILVUS_COLLECTION_NAME", ""),
+    milvus_uri=os.getenv("MILVUS_URI"),
+    token=os.getenv("MILVUS_TOKEN", ""),
+    db_name=os.getenv("MILVUS_DB_NAME", "default"),
+)
+mapping = create_mapping_store_from_env() or MappingStoreAdapter(initial_oral_map={})
+speaker = SpeakerResolverAdapter()
+service = SmartMinutesService(retrieval, mapping, speaker)
+```
+
+说明：
+
+- 优先使用 `MAPPING_DB_URI`；
+- 若未配置 `MAPPING_DB_URI`，会回退读取 `MYSQL_HOST`、`MYSQL_PORT`、`MYSQL_USER`、`MYSQL_PASSWORD`、`MYSQL_DATABASE`；
+- 若 MySQL 映射未配置，可回退到内存映射（`MappingStoreAdapter`）。
+
 ---
 
 ## 二、请求与响应
@@ -214,3 +241,55 @@ A：调用 **POST /api/smart-minutes/retrieve**，请求中只填 `oral_names` �
 
 **Q：partial 为 true 时怎么处理？**  
 A：表示部分步骤失败或未命中，可查看 `warnings` 列表；已生成的内容和 `references` 仍可使用，可按需降级展示或重试。
+
+---
+
+## 六、扩展字段与 Schema 管理
+
+系统支持为 Milvus 数据动态生成扩展字段，利用 LLM 能力自动分析内容。
+
+### 6.1 内置扩展字段
+
+入库时自动生成的字段：
+
+| 字段名 | 类型 | 说明 |
+|--------|------|------|
+| `summary_short` | string | 短摘要（50字） |
+| `summary_detailed` | string | 详细摘要（200字） |
+| `keywords` | array | 关键词（最多5个） |
+| `sentiment` | string | 情感倾向（positive/negative/neutral） |
+| `importance` | int | 重要性评分（1-5） |
+| `category` | string | 业务分类 |
+| `action_items_structured` | array | 结构化行动项 |
+| `decision_summary` | string | 决策结论提取 |
+
+### 6.2 自定义扩展字段
+
+通过 Schema 管理接口注册自定义字段：
+
+```python
+from smart_minutes import SmartMinutesService
+
+service = SmartMinutesService(...)
+
+# 注册扩展字段
+service.register_extension_field({
+    "field_name": "my_custom_field",
+    "field_type": "string",
+    "description": "自定义字段描述",
+    "generation_method": "llm",  # llm / rule / none
+    "generation_prompt": "请从以下内容中提取..."
+})
+```
+
+### 6.3 Schema 管理接口
+
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| `/api/v1/schema/info/{collection_name}` | GET | 获取 Schema 信息 |
+| `/api/v1/schema/register` | POST | 注册扩展字段 |
+| `/api/v1/schema/list` | GET | 列出已注册字段 |
+| `/api/v1/schema/unregister` | POST | 注销扩展字段 |
+| `/api/v1/schema/generate` | POST | 为存量数据生成字段 |
+| `/api/v1/schema/migrate` | POST | 迁移到动态字段 Collection |
+| `/api/v1/schema/preview` | POST | 预览字段生成效果 |

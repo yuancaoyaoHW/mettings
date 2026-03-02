@@ -230,6 +230,7 @@ class MinutesAgent:
                 project=params.get("project", ""),
                 department=params.get("department", ""),
                 organization=params.get("organization", ""),
+                attendees=params.get("attendees") or [],
             )
         if tool_name == "retrieve_by_topic":
             return rag.retrieve_by_topic(self._retrieval, params.get("topic_name", ""), top_k)

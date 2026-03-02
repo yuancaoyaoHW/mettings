@@ -83,6 +83,7 @@ def suggest_tools(
                     "project": request.project or "",
                     "department": request.department or "",
                     "organization": request.organization or "",
+                    "attendees": request.attendees,
                     "top_k": top_k,
                 },
             }

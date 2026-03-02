@@ -1,6 +1,7 @@
 """FastAPI 应用：挂载 /api/smart-minutes。"""
 from contextlib import asynccontextmanager
 import json
+import os
 import time
 import uuid
 from typing import Any, Dict, Optional
@@ -9,26 +10,16 @@ from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 
 from smart_minutes import SmartMinutesService
-from smart_minutes.adapters.mapping_store import MappingStoreAdapter
-from smart_minutes.adapters.retrieval import RetrievalAdapter
-from smart_minutes.adapters.speaker_resolver import SpeakerResolverAdapter
 from smart_minutes.schemas import MinutesRequest, MinutesResponse
+from smart_minutes.factory import create_service
 
 # 导入 schema 管理路由
 from api.schema_manager import router as schema_router
 
 
-def _create_service() -> SmartMinutesService:
-    """用 stub 适配器构造服务；生产环境可替换为真实 Milvus/DB。"""
-    retrieval = RetrievalAdapter(client=None, collection_name="")
-    mapping = MappingStoreAdapter(initial_oral_map={})
-    speaker = SpeakerResolverAdapter()
-    return SmartMinutesService(retrieval, mapping, speaker)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.service = _create_service()
+    app.state.service = create_service()
     yield
     app.state.service = None
 
@@ -36,7 +27,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Smart Minutes API", lifespan=lifespan)
 
 # 挂载 schema 管理路由
-app.include_router(schema_router)
+app.include_router(schema_router, prefix="/api/schema")
+app.include_router(schema_router, prefix="/api/v1/schema")
 
 
 def _event_chunk(event: Dict[str, Any]) -> str:
@@ -77,6 +69,7 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+@app.post("/api/v1/smart-minutes/generate", response_model=MinutesResponse)
 @app.post("/api/smart-minutes/generate", response_model=MinutesResponse)
 def generate_minutes(request: MinutesRequest) -> MinutesResponse:
     """生成纪要：返回正文、引用、warnings/errors。"""
@@ -84,6 +77,7 @@ def generate_minutes(request: MinutesRequest) -> MinutesResponse:
     return service.run(request, retrieve_only=False)
 
 
+@app.post("/api/v1/smart-minutes/retrieve", response_model=MinutesResponse)
 @app.post("/api/smart-minutes/retrieve", response_model=MinutesResponse)
 def retrieve_only(request: MinutesRequest) -> MinutesResponse:
     """仅检索：不调用 LLM，返回 references、mapped_terms、resolved_speakers。"""
@@ -91,6 +85,7 @@ def retrieve_only(request: MinutesRequest) -> MinutesResponse:
     return service.run(request, retrieve_only=True)
 
 
+@app.post("/api/v1/smart-minutes/generate-stream")
 @app.post("/api/smart-minutes/generate-stream")
 def generate_minutes_stream(request: MinutesRequest) -> StreamingResponse:
     """先输出非流式阶段事件，再以 SSE 流式返回最终纪要正文。"""

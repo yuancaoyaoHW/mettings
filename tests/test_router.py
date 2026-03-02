@@ -11,13 +11,15 @@ def test_suggest_tools_empty_request():
 
 
 def test_suggest_tools_with_meeting_and_topics():
-    req = MinutesRequest(meeting_name="周会", topics=["议题1", "议题2"])
+    req = MinutesRequest(meeting_name="周会", topics=["议题1", "议题2"], attendees=["张三"])
     steps = suggest_tools(req)
     tool_names = [s["tool"] for s in steps]
     assert "professional_terms" in tool_names
     assert "retrieve_latest_minutes_by_series" in tool_names
     assert tool_names.count("retrieve_by_topic") == 2
     assert all("params" in s for s in steps)
+    series_step = next(s for s in steps if s["tool"] == "retrieve_latest_minutes_by_series")
+    assert series_step["params"]["attendees"] == ["张三"]
 
 
 def test_suggest_tools_with_oral_names():

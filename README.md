@@ -2,13 +2,17 @@
 
 基于 LLM Agent 的智能会议纪要模块：历史纪要检索、模板与动态 Prompt 生成、发言人融合、映射与附件检索等。
 
-## 当前能力（2026-02）
+## 当前能力（2026-03）
 
-- 结构化输出：`MinutesResponse` 支持 `structured_output`（会议信息、议题、材料引用、追溯信息）。
-- 发言人融合：返回 `speaker_resolutions`（候选集、置信度、冲突状态）。
-- 同系列检索：支持会议名称规范化、`project/department/organization` 过滤。
-- 分类型检索：支持 `todo/open_issue/conclusion` 分别检索与权重参数透传。
-- 入库校验：`pipelines/ingest.py` 对 `source=minutes` 启用 type 归一化与规则校验。
+- **结构化输出**：`MinutesResponse` 支持 `structured_output`（会议信息、议题、材料引用、追溯信息）。
+- **发言人融合**：返回 `speaker_resolutions`（候选集、置信度、冲突状态）。
+- **同系列检索**：支持会议名称规范化、`project/department/organization` 过滤。
+- **分类型检索**：支持 `todo/open_issue/conclusion` 分别检索与权重参数透传。
+- **入库校验**：`pipelines/ingest.py` 对 `source=minutes` 启用 type 归一化与规则校验。
+- **LLM 语义切分**：口水稿按议题切分使用 Qwen3-30B-A3B 进行语义理解。
+- **不确定性标记**：议题切分结果支持 `is_ambiguous` 和 `confidence` 标记。
+- **扩展字段生成**：入库时自动生成 `summary_short`、`keywords`、`sentiment`、`importance` 等字段。
+- **Schema 管理**：支持扩展字段注册、生成、迁移与预览。
 
 ## 文档
 
@@ -120,14 +124,12 @@ pytest -q                        # 运行测试
 
 服务启动后默认监听 `http://localhost:8000`，支持以下接口：
 
-
-| 方法 | 路径 | 说明 |
+| 方法 | 路径 (推荐 v1, 兼容旧版) | 说明 |
 |------|------|------|
 | `GET` | `/health` | 健康检查，返回 `{"status": "ok"}` |
-| `POST` | `/api/smart-minutes/generate` | 生成纪要（一次性返回），`minutes_content` + `structured_output` + `references` |
-| `POST` | `/api/smart-minutes/generate-stream` | 流式生成纪要（SSE），先输出阶段事件再输出正文 token |
-| `POST` | `/api/smart-minutes/retrieve` | 仅检索，不调用 LLM；返回 `references`、`mapped_terms`、`resolved_speakers`、`speaker_resolutions` |
-
+| `POST` | `/api/v1/smart-minutes/generate` | 生成纪要（一次性返回），`minutes_content` + `structured_output` + `references` |
+| `POST` | `/api/v1/smart-minutes/generate-stream` | 流式生成纪要（SSE），先输出阶段事件再输出正文 token |
+| `POST` | `/api/v1/smart-minutes/retrieve` | 仅检索，不调用 LLM；返回 `references`、`mapped_terms`、`resolved_speakers`、`speaker_resolutions` |
 
 所有 `POST` 接口的请求体均为 [`MinutesRequest`](smart_minutes/schemas.py)，响应体均为 [`MinutesResponse`](smart_minutes/schemas.py)。
 
@@ -182,7 +184,7 @@ pytest -q                        # 运行测试
 }
 ```
 
-该请求可用于 `POST /api/smart-minutes/generate` 或 `POST /api/smart-minutes/retrieve`。
+该请求可用于 `POST /api/v1/smart-minutes/generate` 或 `POST /api/v1/smart-minutes/retrieve`。
 
 ## meeting_type 模板配置（JSON/YAML 二选一）
 
@@ -213,7 +215,7 @@ SMART_MINUTES_TEMPLATES_PATH=config/templates.json
  若需通过 Nginx 反向代理流式接口，请务必关闭缓冲：
 
  ```nginx
- location /api/smart-minutes/generate-stream {
+ location /api/v1/smart-minutes/generate-stream {
      proxy_pass http://127.0.0.1:18080;
      proxy_buffering off;  # 关键：否则 SSE 会被缓冲
      proxy_cache off;
