@@ -16,9 +16,11 @@
 
 ## 文档
 
-- **[对接手册](docs/INTEGRATION.md)**：进程内/HTTP 对接、依赖注入、与现有 Milvus 对接要点、数据约定
-- **[使用指南](docs/USAGE.md)**：快速开始、请求与响应、环境变量、能力与输入对应、常见问题
-- **[需求文档](docs/requirements_smart_minutes.md)**：按目标→输入与检索→生成→约束→验收的完整规格
+- **[对接手册](docs/INTEGRATION.md)**：进程内/HTTP 对接、Pipeline 对接、依赖注入、Milvus/MySQL 约定
+- **[API 参考](docs/API.md)**：所有 v1 端点、请求/响应示例
+- **[使用指南](docs/USAGE.md)**：快速开始、请求与响应、环境变量、常见问题
+- **[数据模型](docs/DATA_MODEL.md)**：Milvus 字段、MySQL 表与用途
+- **[需求文档](docs/requirements_smart_minutes.md)**：完整规格
 
 ## 技术栈
 
@@ -120,18 +122,38 @@ uvicorn api.main:app --reload   # 启动 API
 pytest -q                        # 运行测试
 ```
 
-## 接口一览
+## 9 大功能与 API 一览
 
-服务启动后默认监听 `http://localhost:8000`，支持以下接口：
+| 功能 | 方法 | 路径 | 说明 |
+|------|------|------|------|
+| 生成纪要 | POST | `/api/v1/smart-minutes/generate` | 一次性返回纪要正文与引用 |
+| 流式生成 | POST | `/api/v1/smart-minutes/generate-stream` | SSE 流式输出 |
+| 仅检索 | POST | `/api/v1/smart-minutes/retrieve` | 不调 LLM，返回 references 等 |
+| 同系列历史纪要 | POST | `/api/v1/smart-minutes/query/series` | 按会议类型/名检索同系列纪要 |
+| 议题/相似议题历史 | POST | `/api/v1/smart-minutes/query/by-topic` | 按议题检索历史片段 |
+| 按人查询 | POST | `/api/v1/smart-minutes/query/by-person` | 按人名检索（支持口头称呼→正式名） |
+| 附件信息 | POST | `/api/v1/smart-minutes/query/attachments` | 会议相关政策/附件列表 |
+| 口水稿→议题名 | POST | `/api/v1/smart-minutes/query/topic-from-draft` | 从口水稿反推相似议题 |
+| 类似待办/遗留 | POST | `/api/v1/smart-minutes/query/similar-todos-issues` | 检索相似待办与遗留问题 |
+| 类似议题结论 | POST | `/api/v1/smart-minutes/query/similar-conclusions` | 检索相似结论 |
+| 人名映射 | POST | `/api/v1/smart-minutes/mappings/oral-names` | 批量添加口头称呼→正式名映射 |
+| Chunk-主题匹配 | POST | `/api/v1/smart-minutes/match-chunks-to-topics` | 为 chunk 分配主题 |
+| 专有名词提取 | POST | `/api/v1/smart-minutes/extract-proper-nouns` | 从文本提取专有名词 |
+| 专有名词列表 | GET | `/api/v1/smart-minutes/proper-nouns?kb_name=xxx` | 按知识库查询专有名词 |
+| MD 入库 | POST | `/api/v1/smart-minutes/ingest-from-md` | 从 MD 文件入库 Milvus |
 
-| 方法 | 路径 (推荐 v1, 兼容旧版) | 说明 |
+详见 [docs/API.md](docs/API.md) 与 [docs/INTEGRATION.md](docs/INTEGRATION.md)。
+
+## 接口一览（核心）
+
+| 方法 | 路径 | 说明 |
 |------|------|------|
-| `GET` | `/health` | 健康检查，返回 `{"status": "ok"}` |
-| `POST` | `/api/v1/smart-minutes/generate` | 生成纪要（一次性返回），`minutes_content` + `structured_output` + `references` |
-| `POST` | `/api/v1/smart-minutes/generate-stream` | 流式生成纪要（SSE），先输出阶段事件再输出正文 token |
-| `POST` | `/api/v1/smart-minutes/retrieve` | 仅检索，不调用 LLM；返回 `references`、`mapped_terms`、`resolved_speakers`、`speaker_resolutions` |
+| `GET` | `/health` | 健康检查 |
+| `POST` | `/api/v1/smart-minutes/generate` | 生成纪要 |
+| `POST` | `/api/v1/smart-minutes/generate-stream` | 流式生成 |
+| `POST` | `/api/v1/smart-minutes/retrieve` | 仅检索 |
 
-所有 `POST` 接口的请求体均为 [`MinutesRequest`](smart_minutes/schemas.py)，响应体均为 [`MinutesResponse`](smart_minutes/schemas.py)。
+generate/retrieve 请求体为 [`MinutesRequest`](smart_minutes/schemas.py)，响应为 [`MinutesResponse`](smart_minutes/schemas.py)。
 
 **`MinutesResponse` 关键字段一览：**
 

@@ -86,21 +86,32 @@ def _retrieve_by_type_with_weights(
     dense_weight: Optional[float] = None,
     sparse_weight: Optional[float] = None,
     type_weight: Optional[float] = None,
+    collection_name: Optional[str] = None,
 ) -> List[dict]:
     """按指定 type + 权重参数检索。"""
     if not text:
         return []
+    kw = _weighted_kwargs(
+        dense_weight=dense_weight,
+        sparse_weight=sparse_weight,
+        type_weight=type_weight,
+    )
+    kw.update(_search_kw(collection_name))
     hits = retrieval.search(
         query_text=text,
         type_filter=type_filter,
         top_k=top_k,
-        **_weighted_kwargs(
-            dense_weight=dense_weight,
-            sparse_weight=sparse_weight,
-            type_weight=type_weight,
-        ),
+        **kw,
     )
     return [_to_ref(h) for h in hits]
+
+
+def _search_kw(collection_name: Optional[str] = None) -> Dict[str, Any]:
+    """构建 search 的 collection_name 等额外参数。"""
+    kw: Dict[str, Any] = {}
+    if collection_name:
+        kw["collection_name"] = collection_name
+    return kw
 
 
 def retrieve_latest_minutes_by_series(
@@ -113,11 +124,13 @@ def retrieve_latest_minutes_by_series(
     department: str = "",
     organization: str = "",
     attendees: Optional[List[str]] = None,
+    collection_name: Optional[str] = None,
 ) -> List[dict]:
     """同系列最新纪要：source=minutes、level1=会议类型/名，按 time 降序取 top_k。"""
     level1 = _normalize_meeting_key(meeting_type or meeting_name or "")
     if not level1:
         return []
+    sk = _search_kw(collection_name)
     hits = retrieval.search(
         query_text=level1,
         source_filter="minutes",
@@ -126,6 +139,7 @@ def retrieve_latest_minutes_by_series(
         project_filter=project or None,
         department_filter=department or None,
         organization_filter=organization or None,
+        **sk,
     )
     if not hits and meeting_name:
         # 兼容历史数据未规范化时，回退到原始名称检索
@@ -137,6 +151,7 @@ def retrieve_latest_minutes_by_series(
             project_filter=project or None,
             department_filter=department or None,
             organization_filter=organization or None,
+            **sk,
         )
     # 弱约束：参会人重叠（仅作为排序辅助，不改变召回范围）
     query_attendees = _to_people_set(attendees or [])
@@ -157,17 +172,39 @@ def retrieve_latest_minutes_by_series(
     return [_to_ref(h) for h in hits[:top_k]]
 
 
-def retrieve_by_topic(retrieval: IRetrieval, topic_name: str, top_k: int) -> List[dict]:
+def retrieve_by_topic(
+    retrieval: IRetrieval,
+    topic_name: str,
+    top_k: int,
+    *,
+    collection_name: Optional[str] = None,
+) -> List[dict]:
     if not topic_name:
         return []
-    hits = retrieval.search(query_text=topic_name, topic_filter=topic_name, top_k=top_k)
+    hits = retrieval.search(
+        query_text=topic_name,
+        topic_filter=topic_name,
+        top_k=top_k,
+        **_search_kw(collection_name),
+    )
     return [_to_ref(h) for h in hits]
 
 
-def retrieve_by_person(retrieval: IRetrieval, person_name: str, top_k: int) -> List[dict]:
+def retrieve_by_person(
+    retrieval: IRetrieval,
+    person_name: str,
+    top_k: int,
+    *,
+    collection_name: Optional[str] = None,
+) -> List[dict]:
     if not person_name:
         return []
-    hits = retrieval.search(query_text=person_name, author_filter=person_name, top_k=top_k)
+    hits = retrieval.search(
+        query_text=person_name,
+        author_filter=person_name,
+        top_k=top_k,
+        **_search_kw(collection_name),
+    )
     return [_to_ref(h) for h in hits]
 
 
@@ -179,6 +216,7 @@ def retrieve_similar_todos(
     dense_weight: Optional[float] = None,
     sparse_weight: Optional[float] = None,
     type_weight: Optional[float] = None,
+    collection_name: Optional[str] = None,
 ) -> List[dict]:
     """按 todo 类型检索相似待办。"""
     return _retrieve_by_type_with_weights(
@@ -189,6 +227,7 @@ def retrieve_similar_todos(
         dense_weight=dense_weight,
         sparse_weight=sparse_weight,
         type_weight=type_weight,
+        collection_name=collection_name,
     )
 
 
@@ -200,6 +239,7 @@ def retrieve_similar_open_issues(
     dense_weight: Optional[float] = None,
     sparse_weight: Optional[float] = None,
     type_weight: Optional[float] = None,
+    collection_name: Optional[str] = None,
 ) -> List[dict]:
     """按 open_issue 类型检索相似遗留问题。"""
     return _retrieve_by_type_with_weights(
@@ -210,6 +250,7 @@ def retrieve_similar_open_issues(
         dense_weight=dense_weight,
         sparse_weight=sparse_weight,
         type_weight=type_weight,
+        collection_name=collection_name,
     )
 
 
@@ -222,6 +263,7 @@ def retrieve_similar_todos_or_issues(
     issue_weight: float = 1.0,
     dense_weight: Optional[float] = None,
     sparse_weight: Optional[float] = None,
+    collection_name: Optional[str] = None,
 ) -> List[dict]:
     """按 todo/open_issue 分别检索并融合排序。"""
     if not text:
@@ -233,6 +275,7 @@ def retrieve_similar_todos_or_issues(
         dense_weight=dense_weight,
         sparse_weight=sparse_weight,
         type_weight=todo_weight,
+        collection_name=collection_name,
     )
     issue_hits = retrieve_similar_open_issues(
         retrieval,
@@ -241,6 +284,7 @@ def retrieve_similar_todos_or_issues(
         dense_weight=dense_weight,
         sparse_weight=sparse_weight,
         type_weight=issue_weight,
+        collection_name=collection_name,
     )
     merged = {}
     for item in todo_hits:
@@ -265,6 +309,7 @@ def retrieve_similar_conclusions(
     dense_weight: Optional[float] = None,
     sparse_weight: Optional[float] = None,
     type_weight: Optional[float] = None,
+    collection_name: Optional[str] = None,
 ) -> List[dict]:
     """按 conclusion 类型检索相似结论。"""
     return _retrieve_by_type_with_weights(
@@ -275,15 +320,23 @@ def retrieve_similar_conclusions(
         dense_weight=dense_weight,
         sparse_weight=sparse_weight,
         type_weight=type_weight,
+        collection_name=collection_name,
     )
 
 
-def retrieve_similar_topic_by_draft(retrieval: IRetrieval, draft_text: str, top_k: int) -> List[dict]:
+def retrieve_similar_topic_by_draft(
+    retrieval: IRetrieval,
+    draft_text: str,
+    top_k: int,
+    *,
+    collection_name: Optional[str] = None,
+) -> List[dict]:
     if not draft_text:
         return []
     hits = retrieval.search(
         query_text=draft_text[:2000],
         source_filter="draft",
         top_k=top_k,
+        **_search_kw(collection_name),
     )
     return [_to_ref(h) for h in hits]

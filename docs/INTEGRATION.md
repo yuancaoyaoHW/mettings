@@ -424,6 +424,8 @@ results = retrieval.search(
   └── ...
 ```
 
+**说明**：产品对外主要暴露 MD 入库接口；`pipelines/ingest.py` 中的 `ingest_minutes_chunks`、`ingest_attachments` 等直接 chunk/附件入库函数仅用于脚本与离线流水线，不作为业务 API 对外暴露。
+
 ### 7.4 入库流程
 
 1. **读取文件**：从指定路径读取所有 `.md` 文件
@@ -466,6 +468,21 @@ export MILVUS_COLLECTION_NAME=minutes
 export MILVUS_URI=http://localhost:19530
 ```
 
+### 7.7 Pipeline 与 MD 入库对接方式
+
+**推荐方式（选项 A）**：由 Pipeline 在 MD 文件就绪后**主动调用**入库接口，无需 callback 接收端。
+
+1. Pipeline 将 MD 文件写入约定路径：`{FILE_PATH}/{kb_name}/{file_name}/vlm/*.md`
+2. 写入完成后，Pipeline 调用 `POST /api/v1/smart-minutes/ingest-from-md`，请求体示例：
+   ```json
+   {"kb_name": "product_docs", "file_name": "requirements", "collection_name": "minutes"}
+   ```
+3. 服务端从本地路径读取 MD，解析后入库 Milvus
+
+**可选方式（选项 B）**：若需 Webhook 接收端（如 MD 通过 URL 拉取），可新增 `POST /api/v1/smart-minutes/callback/ingest-ready`，请求体含 `kb_name`、`file_name`、可选 `file_url`；服务端校验后拉取或使用本地路径，再调用现有 `ingest_from_md`。采用 B 时需约定鉴权与幂等策略。
+
+当前实现按**选项 A**：文档约定由 Pipeline 主动调用入库接口；`collection_name` 可与 `kb_name` 相同或由配置映射。
+
 ---
 
 ## 八、错误与降级
@@ -490,3 +507,4 @@ export MILVUS_URI=http://localhost:19530
 | 2026-02-28 | 初始版本 |
 | 2026-03-02 | 补充 MD 文件入库对接章节（第7节） |
 | 2026-03-02 | 补充 MilvusClient 动态字段支持说明 |
+| 2026-03-03 | 补充 Pipeline/Callback 对接方式（7.7 节） |

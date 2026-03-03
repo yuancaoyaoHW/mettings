@@ -62,8 +62,8 @@ def demo_stream_completion():
 3. 自部署 Qwen3-30B-A3B 模型用于高质量语义生成
 
 行动项：
-- 张三负责完成 ingest.py 改造（明天完成）
-- 李四负责测试验证（本周五前）
+- 负责人 A 完成模块改造（明天完成）
+- 负责人 B 负责测试验证（本周五前）
 """
     
     print(f"📝 System Prompt: {system_prompt[:100]}...")

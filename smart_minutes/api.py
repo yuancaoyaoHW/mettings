@@ -34,6 +34,7 @@ class SmartMinutesService:
         *,
         config: Optional[SmartMinutesConfig] = None,
         schema_management: Optional[Any] = None,
+        proper_noun_store: Optional[Any] = None,
     ):
         from smart_minutes.config import SmartMinutesConfig
         self._retrieval = retrieval
@@ -41,6 +42,7 @@ class SmartMinutesService:
         self._speaker_resolver = speaker_resolver
         self._config = config or SmartMinutesConfig.from_env()
         self._schema_management = schema_management
+        self._proper_noun_store = proper_noun_store
 
     def run(self, request: MinutesRequest, *, retrieve_only: bool = False) -> MinutesResponse:
         """执行纪要生成或仅检索；内部流程为 路由建议 + Agent 执行。"""
@@ -146,6 +148,240 @@ class SmartMinutesService:
         """预览字段生成效果。"""
         backend = self._require_schema_management()
         return backend.preview_field_generation(text, field_name, generation_prompt)
+
+    # ---------- 独立查询 API（仅检索，不调 LLM） ----------
+
+    def _resolve_collection(self, kb_name: Optional[str], collection_name: Optional[str]) -> str:
+        """解析 collection：优先 kb_name/collection_name，否则用 config。"""
+        return (
+            (collection_name or kb_name or "")
+            or getattr(self._config, "collection_name", "")
+            or ""
+        )
+
+    def query_series(
+        self,
+        meeting_type: str,
+        meeting_name: str,
+        *,
+        top_k: int = 5,
+        kb_name: Optional[str] = None,
+        collection_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """同系列历史纪要。"""
+        from smart_minutes.tools import rag
+        coll = self._resolve_collection(kb_name, collection_name)
+        items = rag.retrieve_latest_minutes_by_series(
+            self._retrieval,
+            meeting_type,
+            meeting_name,
+            top_k,
+            collection_name=coll or None,
+        )
+        return {"items": items, "collection": coll}
+
+    def query_by_topic(
+        self,
+        topic_name: str,
+        *,
+        top_k: int = 5,
+        kb_name: Optional[str] = None,
+        collection_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """议题/相似议题历史。"""
+        from smart_minutes.tools import rag
+        coll = self._resolve_collection(kb_name, collection_name)
+        items = rag.retrieve_by_topic(
+            self._retrieval,
+            topic_name,
+            top_k,
+            collection_name=coll or None,
+        )
+        return {"items": items, "collection": coll}
+
+    def query_attachments(
+        self,
+        meeting_type: str,
+        meeting_name: str,
+        *,
+        kb_name: Optional[str] = None,
+        collection_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """附件信息。"""
+        from smart_minutes.tools import attachment
+        coll = self._resolve_collection(kb_name, collection_name)
+        items = attachment.get_attachments_by_meeting(
+            self._retrieval,
+            meeting_type,
+            meeting_name,
+            collection_name=coll or None,
+        )
+        return {"items": items, "collection": coll}
+
+    def query_topic_from_draft(
+        self,
+        draft_text: str,
+        *,
+        top_k: int = 5,
+        kb_name: Optional[str] = None,
+        collection_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """口水稿→议题名。"""
+        from smart_minutes.tools import rag
+        coll = self._resolve_collection(kb_name, collection_name)
+        items = rag.retrieve_similar_topic_by_draft(
+            self._retrieval,
+            draft_text,
+            top_k,
+            collection_name=coll or None,
+        )
+        return {"items": items, "collection": coll}
+
+    def query_similar_todos_issues(
+        self,
+        todos_or_issues: List[str],
+        *,
+        top_k: int = 5,
+        kb_name: Optional[str] = None,
+        collection_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """类似待办/遗留。"""
+        from smart_minutes.tools import rag
+        coll = self._resolve_collection(kb_name, collection_name)
+        text = "\n".join(todos_or_issues) if todos_or_issues else ""
+        items = rag.retrieve_similar_todos_or_issues(
+            self._retrieval,
+            text,
+            top_k,
+            collection_name=coll or None,
+        )
+        return {"items": items, "collection": coll}
+
+    def query_similar_conclusions(
+        self,
+        conclusions: List[str],
+        *,
+        top_k: int = 5,
+        kb_name: Optional[str] = None,
+        collection_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """类似议题结论。"""
+        from smart_minutes.tools import rag
+        coll = self._resolve_collection(kb_name, collection_name)
+        text = "\n".join(conclusions) if conclusions else ""
+        items = rag.retrieve_similar_conclusions(
+            self._retrieval,
+            text,
+            top_k,
+            collection_name=coll or None,
+        )
+        return {"items": items, "collection": coll}
+
+    def query_by_person(
+        self,
+        person_name: str,
+        *,
+        top_k: int = 5,
+        kb_name: Optional[str] = None,
+        collection_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """按人查询。若口头称呼对应多人，返回候选不查 Milvus。"""
+        from smart_minutes.tools import rag
+        coll = self._resolve_collection(kb_name, collection_name)
+        candidates = getattr(
+            self._mapping_store,
+            "resolve_oral_to_formal_candidates",
+            lambda _: [],
+        )(person_name)
+        if len(candidates) > 1:
+            return {
+                "items": [],
+                "collection": coll,
+                "oral_name": person_name,
+                "formal_names": candidates,
+                "ambiguous": True,
+            }
+        formal = candidates[0] if candidates else person_name
+        items = rag.retrieve_by_person(
+            self._retrieval,
+            formal,
+            top_k,
+            collection_name=coll or None,
+        )
+        return {"items": items, "collection": coll}
+
+    def add_oral_name_mappings(
+        self,
+        mappings: List[Dict[str, Any]],
+    ) -> Dict[str, int]:
+        """批量添加或更新口头称呼映射。"""
+        store = self._mapping_store
+        if hasattr(store, "batch_add_or_update_oral_name_mappings"):
+            return store.batch_add_or_update_oral_name_mappings(mappings)
+        return {"success_count": 0, "failed_count": len(mappings)}
+
+    def match_chunks_to_topics(
+        self,
+        chunks: List[Dict[str, Any]],
+        topics: List[str],
+        *,
+        unclassified_label: str = "未分类",
+    ) -> List[Dict[str, Any]]:
+        """Chunk-主题匹配：为每个 chunk 分配主题。"""
+        from smart_minutes.tools.chunk_topic_matcher import match_chunks_to_topics as _match
+        return _match(chunks, topics, unclassified_label=unclassified_label)
+
+    def extract_proper_nouns(
+        self,
+        kb_name: str,
+        *,
+        text: Optional[str] = None,
+        chunks: Optional[List[Dict[str, Any]]] = None,
+        file_name: Optional[str] = None,
+        source_id: Optional[str] = None,
+        collection_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """从文本或 chunks 提取专有名词并写入存储。"""
+        from smart_minutes.tools.proper_noun_extractor import extract_proper_nouns_from_text
+        store = self._proper_noun_store
+        if not store:
+            return {"success": False, "added": 0, "error": "专有名词存储未配置"}
+        content = text or ""
+        if not content and chunks:
+            content = "\n".join(c.get("text", "") for c in chunks)
+        if not content:
+            return {"success": False, "added": 0, "error": "未提供 text 或 chunks"}
+        terms = extract_proper_nouns_from_text(content)
+        if not terms:
+            return {"success": True, "added": 0}
+        source_doc = file_name
+        added = store.add_proper_nouns(
+            kb_name,
+            terms,
+            collection_name=collection_name,
+            source_doc=source_doc,
+            source_id=source_id,
+        )
+        return {"success": True, "added": added}
+
+    def list_proper_nouns(
+        self,
+        kb_name: str,
+        *,
+        collection_name: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> Dict[str, Any]:
+        """按知识库查询专有名词列表。"""
+        store = self._proper_noun_store
+        if not store:
+            return {"items": [], "total": 0, "page": page, "page_size": page_size}
+        return store.list_by_kb(
+            kb_name,
+            collection_name=collection_name,
+            page=page,
+            page_size=page_size,
+        )
 
     # ---------- MD 文件入库 ----------
 

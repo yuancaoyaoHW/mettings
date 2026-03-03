@@ -23,4 +23,5 @@
     type_weight: 1.0
     dense_weight: 0.7
   output_preferences:
+    # legacy_issue_format: 遗留问题输出格式（bullet/list 等），用于兼容旧版纪要格式
     legacy_issue_format: bullet

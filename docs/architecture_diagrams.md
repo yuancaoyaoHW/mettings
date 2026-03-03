@@ -635,5 +635,70 @@ flowchart TD
 
 ---
 
-*文档版本: 2026-02-28*
+## 12. Pipeline 数据流与 9 大功能 API 对应
+
+```mermaid
+flowchart LR
+    subgraph Pipeline[Pipeline]
+        P1[MD 文件就绪]
+        P2[写入 FILE_PATH]
+        P3[调用 ingest-from-md]
+    end
+
+    subgraph Ingest[入库]
+        I1[解析 MD]
+        I2[分块 + 向量化]
+        I3[写入 Milvus]
+    end
+
+    subgraph Query[独立查询 API]
+        Q1[query/series]
+        Q2[query/by-topic]
+        Q3[query/by-person]
+        Q4[query/attachments]
+        Q5[query/topic-from-draft]
+        Q6[query/similar-todos-issues]
+        Q7[query/similar-conclusions]
+    end
+
+    subgraph Store[(存储)]
+        M[(Milvus)]
+        DB[(MySQL)]
+    end
+
+    P1 --> P2
+    P2 --> P3
+    P3 --> I1
+    I1 --> I2
+    I2 --> I3
+    I3 --> M
+
+    M --> Q1
+    M --> Q2
+    M --> Q3
+    M --> Q4
+    M --> Q5
+    M --> Q6
+    M --> Q7
+    DB --> Q3
+```
+
+**9 大功能与 API 对应：**
+
+| 功能 | API 路径 | 底层工具 |
+|------|----------|----------|
+| 同系列历史纪要 | POST /query/series | retrieve_latest_minutes_by_series |
+| 议题/相似议题历史 | POST /query/by-topic | retrieve_by_topic |
+| 按人查询 | POST /query/by-person | retrieve_by_person + resolve_oral_to_formal_candidates |
+| 附件信息 | POST /query/attachments | get_attachments_by_meeting |
+| 口水稿→议题名 | POST /query/topic-from-draft | retrieve_similar_topic_by_draft |
+| 类似待办/遗留 | POST /query/similar-todos-issues | retrieve_similar_todos_or_issues |
+| 类似议题结论 | POST /query/similar-conclusions | retrieve_similar_conclusions |
+| 人名映射 | POST /mappings/oral-names | batch_add_or_update_oral_name_mappings |
+| Chunk-主题匹配 | POST /match-chunks-to-topics | match_chunks_to_topics |
+| 专有名词提取/查询 | POST /extract-proper-nouns, GET /proper-nouns | ProperNounStore |
+
+---
+
+*文档版本: 2026-03-03*
 *对应代码版本: smart_minutes v1.0*

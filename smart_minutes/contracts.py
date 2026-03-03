@@ -30,7 +30,11 @@ class IMappingStore(Protocol):
     """映射查询接口：口头称呼→正式人名，会议类型→专业名词。"""
 
     def resolve_oral_to_formal(self, oral_name: str) -> Optional[str]:
-        """口头/昵称 → 正式人名，未命中返回 None。"""
+        """口头/昵称 → 正式人名（取第一个/最高置信度），未命中返回 None。"""
+        ...
+
+    def resolve_oral_to_formal_candidates(self, oral_name: str) -> List[str]:
+        """口头/昵称 → 所有正式人名候选（is_active=True，按 confidence 排序），未命中返回 []。"""
         ...
 
     def get_professional_terms(self, meeting_type: str, meeting_name: str) -> List[str]:

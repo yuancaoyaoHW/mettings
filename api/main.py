@@ -14,8 +14,9 @@ from smart_minutes import SmartMinutesService
 from smart_minutes.schemas import MinutesRequest, MinutesResponse
 from smart_minutes.factory import create_service
 
-# 导入 schema 管理路由
+# 导入 schema 管理路由与查询路由
 from api.schema_manager import router as schema_router
+from api.query_routes import router as query_router
 
 
 @asynccontextmanager
@@ -27,9 +28,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Smart Minutes API", lifespan=lifespan)
 
-# 挂载 schema 管理路由
+# 挂载 schema 管理路由与查询路由
 app.include_router(schema_router, prefix="/api/schema")
 app.include_router(schema_router, prefix="/api/v1/schema")
+app.include_router(query_router)
 
 
 def _event_chunk(event: Dict[str, Any]) -> str:

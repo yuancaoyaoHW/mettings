@@ -1,5 +1,5 @@
 """附件工具：按会议取政策列表、按议题在附件内检索。"""
-from typing import List
+from typing import List, Optional
 
 from smart_minutes.contracts import IRetrieval
 
@@ -27,16 +27,20 @@ def get_attachments_by_meeting(
     retrieval: IRetrieval,
     meeting_type: str,
     meeting_name: str,
+    *,
+    collection_name: Optional[str] = None,
 ) -> List[dict]:
     """会议相关政策/附件列表：source=attachment、level1=会议类型/名。"""
     level1 = meeting_type or meeting_name or ""
     if not level1:
         return []
+    kw = {"collection_name": collection_name} if collection_name else {}
     hits = retrieval.search(
         query_text=level1,
         source_filter="attachment",
         level1_filter=level1,
         top_k=50,
+        **kw,
     )
     return [_to_ref(h) for h in hits]
 
