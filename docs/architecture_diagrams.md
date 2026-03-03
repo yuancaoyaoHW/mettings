@@ -298,7 +298,7 @@ erDiagram
         string open_issues
         string action_items
         string source_ref_ids
-        float confidence
+        number confidence
     }
     
     ActionItem {
@@ -311,8 +311,8 @@ erDiagram
     }
     
     ReferenceItem {
-        int pk
-        float score
+        number pk
+        number score
         string page_content
         string source
         string type
@@ -321,14 +321,14 @@ erDiagram
         string time
         string source_id
         string source_position
-        float confidence
+        number confidence
         string owner
         string deadline
     }
     
     SpeakerResolution {
         string resolved_name
-        float confidence
+        number confidence
         string candidates
         string status
         string conflict_reason
