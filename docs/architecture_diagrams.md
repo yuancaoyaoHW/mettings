@@ -6,10 +6,10 @@
 flowchart TB
     subgraph Input["输入层"]
         I1[会议类型/名称<br/>meeting_type/name]
-        I2[议题列表<br/>topics[]]
+        I2[议题列表<br/>topics]
         I3[口水稿<br/>draft_text]
         I4[多模态输入<br/>人脸/声纹/会场]
-        I5[口头称呼<br/>oral_names[]]
+        I5[口头称呼<br/>oral_names]
         I6[待办/结论<br/>open_issues/conclusions]
         I7[扩展字段配置<br/>options.dynamic_fields]
     end
@@ -191,40 +191,40 @@ sequenceDiagram
     
     Router->>Router: 解析retrieval_weights<br/>todo/open_issue/conclusion权重
     Router->>Router: 生成工具调用序列<br/>mapping→rag→attachment→draft→speaker
-    Router-->>Service: tool_suggestions[]
+    Router-->>Service: tool_suggestions
     
     Service->>Agent: run(request, tool_suggestions)
     
     Note over Agent: Group1: 映射工具（顺序）
     Agent->>Tools: mapping (oral→formal)
-    Tools-->>Agent: mapped_terms[]
+    Tools-->>Agent: mapped_terms
     Agent->>Tools: professional_terms
-    Tools-->>Agent: terms[]
+    Tools-->>Agent: terms
     
     Note over Agent: Group2: 检索工具（并行）
     par 并行执行
         Agent->>Tools: retrieve_latest_minutes_by_series
-        Tools-->>Agent: series_refs[]
+        Tools-->>Agent: series_refs
     and
         Agent->>Tools: retrieve_by_topic
-        Tools-->>Agent: topic_refs[]
+        Tools-->>Agent: topic_refs
     and
         Agent->>Tools: retrieve_by_person
-        Tools-->>Agent: person_refs[]
+        Tools-->>Agent: person_refs
     and
         Agent->>Tools: retrieve_similar_todos_or_issues
-        Tools-->>Agent: todo_issue_refs[]
+        Tools-->>Agent: todo_issue_refs
     and
         Agent->>Tools: retrieve_similar_conclusions
-        Tools-->>Agent: conclusion_refs[]
+        Tools-->>Agent: conclusion_refs
     and
         Agent->>Tools: search_attachments_by_topic
-        Tools-->>Agent: attachment_refs[]
+        Tools-->>Agent: attachment_refs
     end
     
     Note over Agent: Group3: 后处理工具（顺序）
     Agent->>Tools: get_draft_segments_by_topics<br/>语义切分+置信度标记
-    Tools-->>Agent: segments[]
+    Tools-->>Agent: segments
     
     opt 有实时发言人输入
         Agent->>Tools: resolve_speaker<br/>(face/voice/venue融合)
@@ -281,23 +281,23 @@ erDiagram
         string department
         string organization
         string draft_text
-        array topics
-        array person_names
-        array oral_names
-        array open_issues
-        array conclusions
-        object options
-        object realtime_speaker
+        string topics
+        string person_names
+        string oral_names
+        string open_issues
+        string conclusions
+        string options
+        string realtime_speaker
     }
     
     TopicSection {
         string topic_name
         string summary
-        array key_points
-        array conclusions
-        array open_issues
-        array action_items
-        array source_ref_ids
+        string key_points
+        string conclusions
+        string open_issues
+        string action_items
+        string source_ref_ids
         float confidence
     }
     
@@ -306,7 +306,7 @@ erDiagram
         string owner
         string deadline
         string status
-        array source_ref_ids
+        string source_ref_ids
         string source_minutes_id
     }
     
@@ -329,16 +329,16 @@ erDiagram
     SpeakerResolution {
         string resolved_name
         float confidence
-        array candidates
+        string candidates
         string status
         string conflict_reason
     }
     
     TraceabilityInfo {
-        array history_minutes_ids
-        array attachment_positions
-        array speaker_resolution
-        object per_fact_sources
+        string history_minutes_ids
+        string attachment_positions
+        string speaker_resolution
+        string per_fact_sources
     }
     
     ExtensionFieldConfig {
@@ -348,7 +348,7 @@ erDiagram
         string generation_method
         string generation_prompt
         string rule_expression
-        boolean enabled
+        string enabled
     }
 ```
 
@@ -429,8 +429,7 @@ flowchart TD
     
     M1 --> M2
     M2 --> M3
-    M3 --> References[references[]
-    带score/confidence/source]
+    M3 --> References[references列表<br/>带score/confidence/source]
 ```
 
 ---
@@ -473,7 +472,7 @@ flowchart TD
     CheckLowConf -->|是| Unknown
     CheckLowConf -->|否| Resolved[status=resolved]
     
-    Resolved --> Output[返回 SpeakerResolution<br/>resolved_name<br/>confidence<br/>candidates[]<br/>status<br/>conflict_reason]
+    Resolved --> Output[返回 SpeakerResolution<br/>resolved_name/confidence<br/>candidates/status<br/>conflict_reason]
     Unknown --> Output
     
     Output --> End([结束])
@@ -573,11 +572,11 @@ flowchart TB
 
 ```mermaid
 flowchart TD
-    Start([开始]) --> Input[输入: draft_text<br/>topic_names[]]
+    Start([开始]) --> Input[输入: draft_text<br/>topic_names]
     
     Input --> LLMSeg["LLM语义切分<br/>_semantic_segmentation"]
     
-    LLMSeg --> Extract["提取JSON结果<br/>segments[]<br/>含topic/position/confidence"]
+    LLMSeg --> Extract["提取JSON结果<br/>segments列表<br/>含topic/position/confidence"]
     
     Extract --> Validate[验证位置匹配<br/>文本对齐]
     
@@ -586,8 +585,8 @@ flowchart TD
     PostProcess --> CalculateConf["计算置信度<br/>_calculate_confidence"]
     
     CalculateConf --> Classify{置信度判断}
-    Classify -->|>=0.6| HighConf[高置信度段落<br/>segments[]]
-    Classify -->|<0.6| LowConf[低置信度段落<br/>ambiguous_segments[]]
+    Classify -->|>=0.6| HighConf[高置信度段落<br/>segments]
+    Classify -->|<0.6| LowConf[低置信度段落<br/>ambiguous_segments]
     
     HighConf --> Result
     LowConf --> Result[SegmentationResult]
