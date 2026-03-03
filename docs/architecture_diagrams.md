@@ -311,7 +311,7 @@ erDiagram
     }
     
     ReferenceItem {
-        number pk
+        string id
         number score
         string page_content
         string source
