@@ -43,5 +43,8 @@ class Settings:
     # Mapping
     mapping_db_uri: Optional[str] = os.environ.get("MAPPING_DB_URI")
 
+    # MD 文件入库：处理后的会议纪要 MD 根路径
+    file_path: str = _str("FILE_PATH")
+
 
 settings = Settings()

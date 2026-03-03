@@ -186,39 +186,42 @@ service = SmartMinutesService(retrieval, mapping, speaker)
 
 ### 3.3 接口与契约
 
-- **POST /api/v1/smart-minutes/generate**：生成纪要，请求体为 `MinutesRequest` 的 JSON，响应为 `MinutesResponse`。
- - **POST /api/v1/smart-minutes/generate-stream**：流式生成纪要，SSE 协议返回阶段事件与正文 token。
- - **POST /api/v1/smart-minutes/retrieve**：仅检索，不生成正文；请求体同，响应中 `minutes_content` 为空，`references` 等有值。
-- **GET /health**：健康检查。
+| 接口 | 说明 |
+|------|------|
+| **POST /api/v1/smart-minutes/generate** | 生成纪要，请求体为 `MinutesRequest` 的 JSON，响应为 `MinutesResponse` |
+| **POST /api/v1/smart-minutes/generate-stream** | 流式生成纪要，SSE 协议返回阶段事件与正文 token |
+| **POST /api/v1/smart-minutes/retrieve** | 仅检索，不生成正文；请求体同，响应中 `minutes_content` 为空，`references` 等有值 |
+| **POST /api/v1/smart-minutes/ingest-from-md** | MD 文件入库，将 Markdown 文件解析为 chunk 后存入 Milvus |
+| **GET /health** | 健康检查 |
 
 *注：原 `/api/smart-minutes/*` 路径继续保留作为兼容层，但推荐使用 `/api/v1/` 前缀。*
 
-`/api/schema/*` 为内部管理接口（Schema 注册/迁移/预览），不建议作为业务侧对外契约直接依赖。
+`/api/v1/schema/*` 为内部管理接口（Schema 注册/迁移/预览），不建议作为业务侧对外契约直接依赖。
 
 请求/响应字段见 [使用指南 - 请求与响应](USAGE.md#二请求与响应)。
 
 ### 3.4 流式接口与 SSE 协议
  
- 接口：`POST /api/v1/smart-minutes/generate-stream`
+接口：`POST /api/v1/smart-minutes/generate-stream`
  
- 响应为 `Content-Type: text/event-stream`，包含两类消息：
+响应为 `Content-Type: text/event-stream`，包含两类消息：
  
- 1. **阶段事件 (Stage Event)**：
-    - 格式：`data: {"stage": "...", "think": "...", ...}`
-    - 用途：前端展示“正在执行某步骤”。
-    - 关键事件：
-      - `smart_minutes_start`：开始执行。
-      - `prepare_done`：工具执行完毕，上下文准备就绪（含 token 预算）。
-      - `warnings`：执行结束前的告警汇总。
+1. **阶段事件 (Stage Event)**：
+   - 格式：`data: {"stage": "...", "think": "...", ...}`
+   - 用途：前端展示"正在执行某步骤"。
+   - 关键事件：
+     - `smart_minutes_start`：开始执行。
+     - `prepare_done`：工具执行完毕，上下文准备就绪（含 token 预算）。
+     - `warnings`：执行结束前的告警汇总。
  
- 2. **Token 数据 (OpenAI Chunk)**：
-    - 格式：`data: {"object": "chat.completion.chunk", "choices": [{"delta": {"content": "..."}}]}`
-    - 用途：流式拼接纪要正文。
-    - 结束标志：`data: [DONE]`
- 
- ---
- 
- ## 四、与现有 Milvus 混合检索的对接要点
+2. **Token 数据 (OpenAI Chunk)**：
+   - 格式：`data: {"object": "chat.completion.chunk", "choices": [{"delta": {"content": "..."}}]}`
+   - 用途：流式拼接纪要正文。
+   - 结束标志：`data: [DONE]`
+
+---
+
+## 四、与现有 Milvus 混合检索的对接要点
 
 若已有 `MilvusHybridClient.search(query_text, knowledge_base_name, top_k, topic_filter=..., file_list=...)`：
 
@@ -388,6 +391,83 @@ results = retrieval.search(
 
 ---
 
+## 七、MD 文件入库对接
+
+系统支持将 Markdown 文件解析为 chunk 后入库 Milvus，便于历史文档的检索和引用。
+
+### 7.1 使用场景
+
+- 历史会议纪要文档入库
+- 产品需求文档入库
+- 政策文件入库
+- 其他结构化文档入库
+
+### 7.2 接口说明
+
+**POST /api/v1/smart-minutes/ingest-from-md**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| kb_name | string | 是 | 知识库名（对应文件夹） |
+| file_name | string | 是 | 文档名（对应子文件夹） |
+| collection_name | string | 否 | 集合名，默认使用环境变量配置 |
+
+### 7.3 文件路径结构
+
+```
+{FILE_PATH}/
+  ├── {kb_name}/
+  │   ├── {file_name}/
+  │   │   └── vlm/
+  │   │       └── *.md
+  │   └── ...
+  └── ...
+```
+
+### 7.4 入库流程
+
+1. **读取文件**：从指定路径读取所有 `.md` 文件
+2. **解析内容**：提取文本内容和元数据
+3. **分块处理**：按段落/标题切分为 chunk
+4. **向量化**：调用 Embedding 服务生成向量
+5. **生成扩展字段**：使用 LLM 生成 summary、keywords 等
+6. **删除旧数据**：根据 source_id 删除该文档的历史数据
+7. **插入新数据**：将 chunk 和向量写入 Milvus
+
+### 7.5 代码示例
+
+```python
+from smart_minutes import create_service
+
+service = create_service()
+
+# 入库 MD 文件
+result = service.ingest_from_md(
+    kb_name="product_docs",
+    file_name="requirements",
+    collection_name="minutes"
+)
+
+print(f"成功: {result['success']}")
+print(f"入库数量: {result['ingested_count']}")
+print(f"删除数量: {result['deleted_count']}")
+if result['errors']:
+    print(f"错误: {result['errors']}")
+```
+
+### 7.6 环境变量配置
+
+```bash
+# MD 文件存放路径
+export FILE_PATH=./data/files
+
+# Milvus 配置
+export MILVUS_COLLECTION_NAME=minutes
+export MILVUS_URI=http://localhost:19530
+```
+
+---
+
 ## 八、错误与降级
 
 - 响应中 `partial=true` 表示部分成功（如某路检索失败、映射未命中）。
@@ -400,3 +480,13 @@ results = retrieval.search(
 
 - 对外契约以 `smart_minutes.schemas` 中的 `MinutesRequest`、`MinutesResponse` 为准；新增可选字段保持向后兼容。
 - 内部 Agent、工具、路由可能随版本调整，调用方仅依赖门面与契约即可。
+
+---
+
+## 十、更新日志
+
+| 日期 | 更新内容 |
+|------|----------|
+| 2026-02-28 | 初始版本 |
+| 2026-03-02 | 补充 MD 文件入库对接章节（第7节） |
+| 2026-03-02 | 补充 MilvusClient 动态字段支持说明 |

@@ -28,9 +28,10 @@ uvicorn api.main:app --host 0.0.0.0 --port 8000
 服务启动后：
 
 - 健康检查：`GET http://localhost:8000/health`
-- 生成纪要：`POST http://localhost:8000/api/smart-minutes/generate`
- - 流式生成：`POST http://localhost:8000/api/smart-minutes/generate-stream`
- - 仅检索：`POST http://localhost:8000/api/smart-minutes/retrieve`
+- 生成纪要：`POST http://localhost:8000/api/v1/smart-minutes/generate`
+- 流式生成：`POST http://localhost:8000/api/v1/smart-minutes/generate-stream`
+- 仅检索：`POST http://localhost:8000/api/v1/smart-minutes/retrieve`
+- MD 入库：`POST http://localhost:8000/api/v1/smart-minutes/ingest-from-md`
 
 ### 1.2 Python 进程内调用
 
@@ -166,50 +167,51 @@ service = SmartMinutesService(retrieval, mapping, speaker)
 
 **仅检索（不生成正文）：**
  
- ```json
- {
-   "meeting_name": "产品周会",
-   "topics": ["需求评审"],
-   "person_names": ["张三"]
- }
- ```
- 
- 调用 **POST /api/smart-minutes/retrieve** 时请求体同上；响应中 `minutes_content` 为空，`references`、`mapped_terms`、`resolved_speakers` 为检索与映射结果。
- 
- **流式调用（SSE）：**
- 
- ```bash
- curl -N -X POST "http://localhost:8000/api/smart-minutes/generate-stream" \
-   -H "Content-Type: application/json" \
-   -d '{
-     "meeting_name": "周例会",
-     "topics": ["进度同步"],
-     "oral_names": ["老张"]
-   }'
- ```
- 
- 你会先收到 JSON 格式的阶段事件，再收到 OpenAI 格式的 token 流，最后收到 `[DONE]`。
- 
- ---
- 
- ## 三、环境变量
+```json
+{
+  "meeting_name": "产品周会",
+  "topics": ["需求评审"],
+  "person_names": ["张三"]
+}
+```
+
+调用 **POST /api/v1/smart-minutes/retrieve** 时请求体同上；响应中 `minutes_content` 为空，`references`、`mapped_terms`、`resolved_speakers` 为检索与映射结果。
+
+**流式调用（SSE）：**
+
+```bash
+curl -N -X POST "http://localhost:8000/api/v1/smart-minutes/generate-stream" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "meeting_name": "周例会",
+    "topics": ["进度同步"],
+    "oral_names": ["老张"]
+  }'
+```
+
+你会先收到 JSON 格式的阶段事件，再收到 OpenAI 格式的 token 流，最后收到 `[DONE]`。
+
+---
+
+## 三、环境变量
 
 | 变量 | 说明 | 示例 |
 |------|------|------|
-| MILVUS_URI | Milvus 连接地址 | |
-| MILVUS_TOKEN | Milvus 认证 token | |
-| MILVUS_DB_NAME | 数据库名 | |
-| MILVUS_COLLECTION_NAME | 集合名 | |
-| EMBEDDING_BASE_URL | Embedding 服务地址 | |
-| EMBEDDING_MODEL_NAME | 模型名 | |
-| LLM_API_KEY | LLM 密钥 | |
-| LLM_BASE_URL | LLM 服务地址 | |
-| LLM_MODEL_NAME | 模型名 | |
+| MILVUS_URI | Milvus 连接地址 | `http://localhost:19530` |
+| MILVUS_TOKEN | Milvus 认证 token | - |
+| MILVUS_DB_NAME | 数据库名 | `default` |
+| MILVUS_COLLECTION_NAME | 集合名 | `minutes` |
+| EMBEDDING_BASE_URL | Embedding 服务地址 | - |
+| EMBEDDING_MODEL_NAME | 模型名 | - |
+| LLM_API_KEY | LLM 密钥 | - |
+| LLM_BASE_URL | LLM 服务地址 | - |
+| LLM_MODEL_NAME | 模型名 | - |
 | CONTEXT_TOKEN_BUDGET | 单次上下文 token 上限 | 8000 |
 | DEFAULT_TOP_K | 默认召回条数 | 5 |
 | SMART_MINUTES_TEMPLATES_PATH | 会议类型模板文件路径（JSON/YAML） | `config/templates.json` |
 | SMART_MINUTES_TEMPLATES_JSON | 会议类型模板 JSON 字符串（可选） | `{"周会":{"top_k":3}}` |
-| MAPPING_DB_URI | 映射表 DB（可选） | |
+| MAPPING_DB_URI | 映射表 DB（可选） | `mysql://user:pass@host/db` |
+| FILE_PATH | MD 文件存放路径 | `./data/files` |
 
 更多见项目根目录 `.env.example`。
 
@@ -237,7 +239,7 @@ A：当前默认未接 LLM，仅为占位。对接真实 LLM 后会在门面内�
 A：未注入真实 Milvus 客户端或集合无数据时，检索结果为空。请按《对接手册》注入 `RetrievalAdapter` 并配置正确集合。
 
 **Q：如何只做「口头→人名」或「会议类型→专业词」？**  
-A：调用 **POST /api/smart-minutes/retrieve**，请求中只填 `oral_names` 或 `meeting_type`/`meeting_name`，看响应中的 `mapped_terms`。
+A：调用 **POST /api/v1/smart-minutes/retrieve**，请求中只填 `oral_names` 或 `meeting_type`/`meeting_name`，看响应中的 `mapped_terms`。
 
 **Q：partial 为 true 时怎么处理？**  
 A：表示部分步骤失败或未命中，可查看 `warnings` 列表；已生成的内容和 `references` 仍可使用，可按需降级展示或重试。
@@ -293,3 +295,97 @@ service.register_extension_field({
 | `/api/v1/schema/generate` | POST | 为存量数据生成字段 |
 | `/api/v1/schema/migrate` | POST | 迁移到动态字段 Collection |
 | `/api/v1/schema/preview` | POST | 预览字段生成效果 |
+
+---
+
+## 七、MD 文件入库
+
+系统支持将 Markdown 文件解析为 chunk 后入库 Milvus，便于历史文档的检索和引用。
+
+### 7.1 接口说明
+
+**POST /api/v1/smart-minutes/ingest-from-md**
+
+将指定路径下的 MD 文件解析、分块、向量化后存入 Milvus。
+
+**请求体：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| kb_name | string | 是 | 知识库名（对应文件夹） |
+| file_name | string | 是 | 文档名（对应子文件夹） |
+| collection_name | string | 否 | 集合名，默认使用环境变量配置 |
+
+**响应体：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| success | boolean | 是否成功 |
+| ingested_count | int | 入库的 chunk 数量 |
+| errors | string[] | 错误信息列表 |
+| deleted_count | int | 删除的旧数据数量 |
+
+### 7.2 使用示例
+
+```bash
+# 将 {FILE_PATH}/product_docs/requirements/v1.md 入库
+curl -X POST "http://localhost:8000/api/v1/smart-minutes/ingest-from-md" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "kb_name": "product_docs",
+    "file_name": "requirements",
+    "collection_name": "minutes"
+  }'
+```
+
+### 7.3 Python 调用
+
+```python
+from smart_minutes import create_service
+
+service = create_service()
+
+# 入库 MD 文件
+result = service.ingest_from_md(
+    kb_name="product_docs",
+    file_name="requirements",
+    collection_name="minutes"
+)
+
+print(f"入库成功: {result['success']}")
+print(f"入库数量: {result['ingested_count']}")
+```
+
+### 7.4 文件路径结构
+
+MD 文件存放路径结构：
+
+```
+{FILE_PATH}/
+  ├── {kb_name}/
+  │   ├── {file_name}/
+  │   │   └── vlm/
+  │   │       └── *.md
+  │   └── ...
+  └── ...
+```
+
+例如，设置 `FILE_PATH=./data/files`，则文件应存放于：
+- `./data/files/product_docs/requirements/vlm/document.md`
+
+### 7.5 入库流程
+
+1. **读取文件**：从指定路径读取所有 `.md` 文件
+2. **解析内容**：提取文本内容和元数据
+3. **分块处理**：按段落/标题切分为 chunk
+4. **向量化**：调用 Embedding 服务生成向量
+5. **生成扩展字段**：使用 LLM 生成 summary、keywords 等
+6. **删除旧数据**：根据 source_id 删除该文档的历史数据
+7. **插入新数据**：将 chunk 和向量写入 Milvus
+
+### 7.6 注意事项
+
+- 需要配置 `FILE_PATH` 环境变量指定文件存放根目录
+- 需要配置 `MILVUS_COLLECTION_NAME` 指定默认集合
+- 入库前会自动删除该文档的历史数据（全量替换）
+- 支持动态字段，可自动入库扩展字段

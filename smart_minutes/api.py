@@ -146,3 +146,54 @@ class SmartMinutesService:
         """预览字段生成效果。"""
         backend = self._require_schema_management()
         return backend.preview_field_generation(text, field_name, generation_prompt)
+
+    # ---------- MD 文件入库 ----------
+
+    def ingest_from_md(
+        self,
+        kb_name: str,
+        file_name: str,
+        *,
+        collection_name: Optional[str] = None,
+        file_path: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        从 FILE_PATH 下读取 MD 文件，解析为 chunk，删除旧数据后入库 Milvus。
+
+        Args:
+            kb_name: 知识库名
+            file_name: 文档名
+            collection_name: 可选，默认用 config 的 collection_name
+            file_path: 可选，默认用环境变量 FILE_PATH
+
+        Returns:
+            {"success": bool, "ingested_count": int, "errors": List[str], "deleted_count": int}
+        """
+        from pipelines.md_ingest import ingest_from_md as _ingest_from_md
+
+        coll = collection_name or getattr(self._config, "collection_name", "") or ""
+        client = getattr(self._retrieval, "get_client", lambda: None)()
+        if client is None:
+            return {
+                "success": False,
+                "ingested_count": 0,
+                "errors": ["Milvus 未配置，无法入库"],
+                "deleted_count": 0,
+            }
+        if not coll:
+            return {
+                "success": False,
+                "ingested_count": 0,
+                "errors": ["collection_name 未配置，请设置 MILVUS_COLLECTION_NAME 或传入 collection_name"],
+                "deleted_count": 0,
+            }
+        return _ingest_from_md(
+            kb_name,
+            file_name,
+            file_path=file_path or "",
+            collection_name=coll,
+            client=client,
+            enable_dynamic_fields=True,
+            use_llm_for_fields=True,
+            use_llm_classify=True,
+        )

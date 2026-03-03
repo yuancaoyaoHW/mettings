@@ -4,10 +4,11 @@ import json
 import os
 import time
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 
 from smart_minutes import SmartMinutesService
 from smart_minutes.schemas import MinutesRequest, MinutesResponse
@@ -143,3 +144,48 @@ def generate_minutes_stream(request: MinutesRequest) -> StreamingResponse:
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+# ---------- MD 文件入库 ----------
+
+
+class IngestFromMdRequest(BaseModel):
+    """MD 文件入库请求。"""
+    kb_name: str = Field(..., description="知识库名")
+    file_name: str = Field(..., description="文档名")
+    collection_name: Optional[str] = Field(default=None, description="可选，默认用环境变量 MILVUS_COLLECTION_NAME")
+
+
+class IngestFromMdResponse(BaseModel):
+    """MD 文件入库响应。"""
+    success: bool
+    ingested_count: int = 0
+    errors: List[str] = Field(default_factory=list)
+    deleted_count: int = 0
+
+
+@app.post("/api/v1/smart-minutes/ingest-from-md", response_model=IngestFromMdResponse)
+@app.post("/api/smart-minutes/ingest-from-md", response_model=IngestFromMdResponse)
+def ingest_from_md(request: IngestFromMdRequest) -> IngestFromMdResponse:
+    """
+    从 FILE_PATH 下读取 MD 文件，解析为 chunk，全量替换后入库 Milvus。
+    路径结构：{FILE_PATH}/{kb_name}/{file_name}/vlm/*.md
+    """
+    service: SmartMinutesService = app.state.service
+    result = service.ingest_from_md(
+        kb_name=request.kb_name,
+        file_name=request.file_name,
+        collection_name=request.collection_name,
+    )
+    if not result["success"] and not result.get("ingested_count", 0):
+        first_error = result.get("errors", [""])[0] or "入库失败"
+        if "FILE_PATH" in first_error or "未配置" in first_error:
+            raise HTTPException(status_code=400, detail=first_error)
+        if "路径不存在" in first_error or "无 .md 文件" in first_error:
+            raise HTTPException(status_code=404, detail=first_error)
+    return IngestFromMdResponse(
+        success=result["success"],
+        ingested_count=result.get("ingested_count", 0),
+        errors=result.get("errors", []),
+        deleted_count=result.get("deleted_count", 0),
+    )

@@ -181,6 +181,10 @@ class RetrievalAdapter(IRetrieval):
             except:
                 pass
 
+    def get_client(self) -> Any:
+        """获取底层 MilvusClient，用于 insert/delete 等操作。"""
+        return self._client
+
     def search(
         self,
         query_text: str,

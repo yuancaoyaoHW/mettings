@@ -964,11 +964,14 @@ def create_milvus_client_from_env() -> MilvusClient:
     """从环境变量创建 Milvus 客户端"""
     import os
     
+    uri = os.getenv("MILVUS_URI", "")
+    host = os.getenv("MILVUS_HOST") or os.getenv("MILVUS_IP", "localhost")
+    port = int(os.getenv("MILVUS_PORT", "19530"))
     config = MilvusConfig(
-        uri=os.getenv("MILVUS_URI", ""),
+        uri=uri,
         token=os.getenv("MILVUS_TOKEN", ""),
-        host=os.getenv("MILVUS_HOST", "localhost"),
-        port=int(os.getenv("MILVUS_PORT", "19530")),
+        host=host,
+        port=port,
         db_name=os.getenv("MILVUS_DB_NAME", "default"),
         pool_size=int(os.getenv("MILVUS_POOL_SIZE", "10")),
         max_retries=int(os.getenv("MILVUS_MAX_RETRIES", "3")),
